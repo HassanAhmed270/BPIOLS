@@ -122,14 +122,37 @@ uses Node 22's built-in test runner, no new npm dependency):
   empty-cart for recomputeOrderTotals; partial-reduction/reduce-to-zero/
   no-discount-line for applyLineReduction's math.
 
-Added `"test": "node --test tests/**/*.test.js"` to package.json scripts.
+Added `"test"` to package.json scripts, listing each test file explicitly
+(`node --test tests/money.test.js tests/pricing.test.js
+tests/validators.test.js tests/costing.test.js tests/orderMath.test.js`).
 No other package.json changes. No production code logic changes anywhere
 in the repo this stage.
+
+Note: two earlier forms of this script were tried and abandoned before
+delivery:
+1. `"node --test tests/**/*.test.js"` — worked in bash but failed on
+   Windows PowerShell, which doesn't expand `**` the way bash does, so
+   npm passed the literal glob string through and Node errored with
+   "Could not find ...tests\**\*.test.js".
+2. `"node --test"` (bare, relying on Node's built-in recursive test-file
+   discovery) — passed in this Linux sandbox, but the person reported it
+   aborting on their machine, while calling a single test file explicitly
+   (`node --test tests/money.test.js`) worked fine for them. That points
+   to a Node-version-dependent difference in how bare `--test` discovery
+   behaves, not a shell issue.
+Explicitly listing every file sidesteps both: no shell glob expansion is
+needed, and no reliance on directory/bare-arg discovery behavior that
+varies by Node version. The tradeoff is that a new test file added to
+tests/ later needs to be added to this list by hand — flagged as a known
+limitation below.
 
 Verified
 
 - `npm test` (fresh `npm install`, then `npm test`): 46/46 tests pass, 0
-  failures.
+  failures, using the explicit-file-list invocation (verified in this
+  Linux sandbox; two earlier glob/discovery-based forms were reported
+  failing in the person's Windows environment and were replaced before
+  delivery — see note above).
 - `git diff --stat` against origin/main confirms only package.json (1 line
   added) and the new tests/ directory changed — no other files touched.
 - No frontend files touched this stage (confirmed via `git diff --
@@ -155,5 +178,16 @@ Open / known limitations
   job per production.md, not Stage 1's — the applyLineReduction math
   tested here covers the existing proportional-reduction formula only, not
   the store-credit/cash-back logic Stage 5 will add.
+- The `test` script lists each test file by hand rather than using a glob
+  or directory pattern. A new test file added under tests/ later must
+  also be added to the `test` script in package.json, or it silently
+  won't run. This tradeoff was chosen deliberately, over two glob/
+  discovery-based forms, to get something that works reliably across
+  the person's Windows/PowerShell environment and this sandbox's Linux/
+  Node 22 environment alike.
 - No CI wiring — `npm test` is a local/manual command only, per this
   stage's scope.
+- This third fix (explicit file list) was independently confirmed by the
+  person on their own Windows machine: `npm test` now reports 46/46
+  passing there. Stage 1 is considered fully confirmed as of this
+  confirmation.
