@@ -49,6 +49,10 @@ const purchaseSchema = new Schema(
 );
 
 const supplierSchema = new Schema({
+  // Stage 3: evaluated for an index alongside Order.orderDate/customerName
+  // and Product.category — `unique: true` below already creates a
+  // standard index on this field (Mongo unique indexes are regular
+  // indexes with an added constraint), so no separate index is added.
   supplierName: {
     type: String,
     required: true,

@@ -51,4 +51,8 @@ const productSchema = new Schema({
   hidden: { type: Boolean, default: false }
 });
 
+// Stage 3: category is searched via regex in /api/products' $or filter
+// and had no index before this stage.
+productSchema.index({ category: 1 });
+
 module.exports = mongoose.model('Product', productSchema);

@@ -79,4 +79,11 @@ const orderSchema = new Schema({
   ]
 });
 
+// Stage 3: orderDate is range-queried by every dashboard/report window
+// (lib/reports.js) and is the default sort for /api/orders; customerName
+// is searched via regex in /api/orders and looked up for credit
+// reporting. Neither had an index before this stage.
+orderSchema.index({ orderDate: 1 });
+orderSchema.index({ customerName: 1 });
+
 module.exports = mongoose.model('Order', orderSchema);

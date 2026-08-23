@@ -283,3 +283,77 @@ Open / known limitations
   unchanged otherwise; Stage 6 is where a real in-app password-change
   flow (self-service and admin-reset) gets built, wired into this same
   `passwordChangedAt` mechanism.
+
+---
+
+Stage 3 — Structural Cleanup: Route Module Split + Indexes
+
+Changed
+
+- Split all 28 inline route handlers out of `main.js` (1,638 lines) into
+  six new domain files, moved by exact line-range extraction (not
+  retyped) to guarantee a verbatim, zero-logic-change move: `routes/
+  products.js` (5 routes + `parseThreshold`/`resolveSupplierId`
+  helpers), `routes/customers.js` (4), `routes/billing.js` (9, incl.
+  `orderDetails`), `routes/suppliers.js` (4 + `generateUniquePurchaseId`),
+  `routes/orders.js` (5, incl. `recomputeOrderTotals`/
+  `applyLineReduction`, and `GET /dashboard/load`), `routes/audit.js` (1).
+- Flagged decision: `GET /dashboard/load` isn't named in production.md's
+  Stage 3 file list (products/customers/billing/suppliers/orders/audit).
+  Placed it in `routes/orders.js` since it reads sales data via
+  `lib/reports.js`'s `getDashboardSummary` — closest domain fit. No new
+  file was created for it.
+- Every router mounts at `app.use('/', ...)` in `main.js`; every route
+  keeps its exact original path (`/api/products`, `/product/:productID`,
+  `/customer/*`, `/billing/*`, `/supplier/*`, `/api/orders`,
+  `/api/order/*`, `/api/audit-log`) — no path changed.
+- `main.js` reduced to 160 lines: app setup, DB connection, middleware,
+  route mounting, static frontend serving, error handler, draft-sweep
+  interval. Sweep still needs `Product`/`PendingBill` directly, kept.
+- Indexes added: `Order.orderDate`, `Order.customerName` (range-queried/
+  searched in `lib/reports.js` and `/api/orders`), `Product.category`
+  (searched in `/api/products`). `Supplier.supplierName` evaluated and
+  left alone — its existing `unique: true` already creates a standard
+  index, so a second one would be redundant; documented inline in
+  `models/Supplier.js`.
+
+Verified
+
+- `node --check` clean on `main.js` and all 6 new route files.
+- Route-inventory boot test (single `bash_tool` call, no live Mongo —
+  none available in this sandbox, same limitation as Stage 2): booted
+  the pre-split repo (commit `a5a4274`, port 4001) and the post-split
+  repo (port 4002) side by side, hit all 28 moved routes plus `/auth/
+  login` and an unmatched `/api/*` path with the same requests against
+  both. Status codes matched exactly on every route (401 for every
+  authenticated route with no token, 500 for the one public DB-touching
+  route with no Mongo, 400/404 for login/unmatched) — only difference in
+  output was the port number in the echoed URL.
+- `npm test`: 51/51 passing, unchanged from Stage 2 (all tests target
+  `lib/`, untouched this stage).
+- `git status --short` confirms only `main.js`, `models/Order.js`,
+  `models/Product.js`, `models/Supplier.js` modified and the 6 new
+  `routes/*.js` files added — nothing else, including `frontend/`
+  (`git diff --stat -- frontend/` empty).
+- `node_modules` and the scratch `.env`/comparison repo removed after
+  verification, before packaging.
+
+Open / known limitations
+
+- No live MongoDB (replica set or standalone) is available in this
+  sandbox and none is fetchable from the allowed network domains — same
+  gap noted in Stage 2. The boot test above confirms every route is
+  mounted at the right path with identical auth-gating to before the
+  split; it does not exercise any route's actual DB-backed business
+  logic post-split. A manual live-DB smoke pass (log in, add a product,
+  place an order, run a restock, edit/refund, check the dashboard) is
+  recommended before this is relied on in production.
+- `recomputeOrderTotals`/`applyLineReduction` are still not exported from
+  `routes/orders.js` (only the router is) — Stage 1's flagged opportunity
+  to replace `tests/orderMath.test.js`'s reimplemented-formula tests with
+  direct imports of the real functions remains open, not actioned this
+  stage (out of Stage 3's own scope; `tests/` isn't in its Affected
+  areas).
+- `GET /dashboard/load`'s placement in `routes/orders.js` was a judgment
+  call, not called for explicitly in production.md — flagged above,
+  worth confirming it's the intended home.

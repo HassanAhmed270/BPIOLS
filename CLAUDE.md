@@ -100,9 +100,16 @@ Do not begin the next stage until the current stage is complete.
 
 BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
-- Backend: Express + Mongoose at repository root, primarily `main.js`.
-- Domain routes may be under `routes/`; much of the existing API remains in
-  `main.js`.
+- Backend: Express + Mongoose at repository root, entry point `main.js`.
+- All domain routes live under `routes/`: `auth.js`, `export.js` (Stage 10),
+  `sync.js` (Stage 11), and, as of Stage 3, `products.js`, `customers.js`,
+  `billing.js` (incl. `orderDetails` checkout), `suppliers.js` (incl.
+  `supplier/purchase`), `orders.js` (incl. edit/refund, `recomputeOrderTotals`/
+  `applyLineReduction`, and `GET /dashboard/load`), `audit.js`. Each mounts at
+  `app.use('/', ...)` since routes keep their original full paths rather than
+  one prefix per file. `main.js` itself now only does app setup, DB
+  connection, middleware, route mounting, static frontend serving, the error
+  handler, and the draft-sweep interval.
 - Frontend: React + Vite + Tailwind under `frontend/`.
 - Production backend serves `frontend/dist`.
 - MongoDB **must run as a replica set** because checkout and other inventory
@@ -136,13 +143,16 @@ Important invariants:
 - FIFO stock costing is handled through `StockBatch` and `lib/costing.js`.
 - Audit records are written through `logAudit()`.
 - CSV export and offline sync are optional feature-flagged modules.
+- Indexed fields (Stage 3): `Order.orderDate`, `Order.customerName`,
+  `Product.category`. `Supplier.supplierName` relies on its existing
+  `unique: true` index; no separate index was added.
 
 ## Request flow
 
-1. `/auth/*` → authentication routes.
+1. `/auth/*` → `routes/auth.js`.
 2. `/api/export/*` and `/api/sync/*` → optional modules when enabled.
 3. Other `/api`, `/billing`, `/product`, `/customer`, `/supplier`, and
-   `/dashboard/load` paths → JSON API handlers.
+   `/dashboard/load` paths → the Stage 3 domain route files under `routes/`.
 4. Other GET requests serve the built React SPA.
 5. Unmatched `/api/*` and `/auth/*` requests return JSON 404s.
 
