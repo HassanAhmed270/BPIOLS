@@ -21,7 +21,7 @@ async function main() {
   const clean = username.trim().toLowerCase();
   const user = await User.findOneAndUpdate(
     { username: clean },
-    { username: clean, passwordHash, role },
+    { username: clean, passwordHash, role, passwordChangedAt: new Date() },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 

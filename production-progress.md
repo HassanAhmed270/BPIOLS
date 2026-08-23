@@ -191,3 +191,95 @@ Open / known limitations
   person on their own Windows machine: `npm test` now reports 46/46
   passing there. Stage 1 is considered fully confirmed as of this
   confirmation.
+
+---
+
+Stage 2 — Security & Config Hardening
+
+Changed
+
+- `.env.example` — replaced the functional-looking `JWT_SECRET` example
+  value with an obviously non-functional placeholder:
+  `REPLACE_THIS_INSECURE_EXAMPLE_VALUE_DO_NOT_USE_IN_PRODUCTION`.
+- `middleware/auth.js` — added a boot-time check comparing `JWT_SECRET`
+  against that exact placeholder string and throwing (refusing to start)
+  if it matches. Added a `passwordChangedAt` ("pwdTs", stored as epoch ms)
+  claim to every JWT issued by `signToken`. `requireAuth` is now `async`:
+  after verifying the JWT signature/expiry, it re-reads the user's current
+  `passwordChangedAt` from the DB (`User.findById(...).select('passwordChangedAt')`)
+  and rejects the token (401) if the DB value is newer than the token's
+  `pwdTs`, or if the user no longer exists. This adds one DB read per
+  authenticated request, which is the mechanism production.md calls for
+  and is acceptable at this app's single-shop scale.
+- `models/user.js` — added `passwordChangedAt: { type: Date, default:
+  Date.now }` to the `User` schema.
+- `routes/auth.js` — no changes were needed. Both `/auth/login` and
+  `/auth/refresh` already fetch a fresh `User` document from the DB before
+  calling `signToken`, so `passwordChangedAt` is embedded automatically.
+
+Incidental one-line fix (flagged, not silently bundled in): `scripts/
+createUser.js` is currently the *only* existing code path that sets or
+changes a user's `passwordHash` (it upserts, so re-running it against an
+existing username is today's de facto "change a worker's password" flow
+until Stage 6 adds real in-app user management). Without also setting
+`passwordChangedAt: new Date()` on that same upsert, the field would never
+actually change through any existing mechanism, silently defeating this
+stage's entire purpose. This was a one-line, obviously-necessary change
+directly tied to Stage 2's own goal, not an unrelated improvement, so it
+was made inline rather than deferred.
+
+Also added `tests/auth.test.js` (Stage 1's `node:test` harness) and added
+it to the explicit file list in `package.json`'s `test` script, per Stage
+1's own noted limitation that new test files must be added by hand.
+
+Verified
+
+- Boot check (manual, via `bash_tool`, matching production.md's own
+  suggested validation method for this item): loading `middleware/auth.js`
+  with `JWT_SECRET` set to the exact `.env.example` placeholder throws
+  `Error: JWT_SECRET is still set to the placeholder value from
+  .env.example. Set a real secret before starting the server.` and the
+  process exits non-zero. Loading it with a freshly generated random
+  secret succeeds (`auth.js loaded OK with real secret`). This check fires
+  at module-require time, before Mongo connects and before `app.listen`,
+  so it is a true boot-time refusal.
+- `tests/auth.test.js` — 5 new unit tests against the real `requireAuth`/
+  `signToken` functions, with `User.findById` monkey-patched per-test
+  (same approach Stage 1 used for dependency-free unit tests; no live
+  Mongo needed since `requireAuth`'s only DB dependency is a single
+  `findById().select()` call): token accepted when DB `passwordChangedAt`
+  still matches what was embedded at signing; token rejected when DB
+  `passwordChangedAt` is newer (the actual "password change invalidates
+  old tokens" scenario); token rejected when the user no longer exists;
+  missing/malformed Authorization header rejected; garbage token
+  rejected.
+- `npm test`: 51/51 passing (46 from Stage 1 + 5 new), run from a fresh
+  `npm install`.
+- No frontend files touched this stage; no frontend build was required or
+  run (confirmed via `git diff -- frontend/` — empty).
+- `node --check` clean on every changed `.js` file.
+- `node_modules` and the scratch `.env` used for the boot check removed
+  after verification, before packaging.
+
+Open / known limitations
+
+- The full login to token issuance to password change to old-token-rejected
+  flow was **not** exercised end-to-end against a live MongoDB replica set
+  in this sandbox — no `mongod` binary is available here and the network
+  egress list doesn't include a domain to fetch one from. The unit test
+  above exercises the real `requireAuth`/`signToken` code paths directly
+  (only the DB call itself is stubbed), which is the strongest
+  verification available without a live database, but it is not a
+  substitute for one manual live-DB check before this is relied on in
+  production. Recommended manual check: log in, note the token, run
+  `node scripts/createUser.js <same-username> <new-password> <same-role>`,
+  then confirm the old token now gets a 401 on any authenticated route.
+- The extra DB read `requireAuth` now performs on every authenticated
+  request is a deliberate accuracy-over-throughput tradeoff per
+  production.md's own stated mechanism; not a concern at this app's
+  single-shop/single-desktop scale, but worth knowing about if traffic
+  patterns ever change.
+- `scripts/createUser.js`'s upsert-as-password-change behavior is
+  unchanged otherwise; Stage 6 is where a real in-app password-change
+  flow (self-service and admin-reset) gets built, wired into this same
+  `passwordChangedAt` mechanism.

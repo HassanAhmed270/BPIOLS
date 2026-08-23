@@ -107,10 +107,18 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 - Production backend serves `frontend/dist`.
 - MongoDB **must run as a replica set** because checkout and other inventory
   mutations use multi-document transactions.
-- `.env` is required; `JWT_SECRET` is required for boot.
+- `.env` is required; `JWT_SECRET` is required for boot, and the server also
+  refuses to boot if `JWT_SECRET` still matches the placeholder value shipped
+  in `.env.example` (checked in `middleware/auth.js`).
+- `User.passwordChangedAt` is embedded into every issued JWT (`pwdTs` claim).
+  `requireAuth` re-reads the user's current `passwordChangedAt` from the DB on
+  every request and rejects the token if it's older than the current value —
+  so a password change invalidates all previously issued tokens for that
+  account. Any code path that changes a user's password must update
+  `passwordChangedAt` to a fresh `Date` for this to take effect.
 
 Core models include `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
-`PendingBill`, `OfflineSale`, `AuditLog`, and `StockBatch`.
+`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, and `User`.
 
 Important invariants:
 
