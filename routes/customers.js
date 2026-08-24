@@ -1,7 +1,7 @@
 // Stage 3 — split out of main.js verbatim, no logic changes.
 const express = require('express');
 const Customer = require('../models/Customers');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { roundMoney } = require('../lib/money');
@@ -84,18 +84,30 @@ router.post('/customer/updateCustomer', requireAuth, asyncHandler(async (req, re
   res.status(200).json({ success: true, message: 'Customer updated successfully', customer: updatedCustomer });
 }));
 
-router.post('/customer/deleteCustomer', requireAuth, asyncHandler(async (req, res) => {
-  const { customerName } = req.body;
+router.post('/customer/deleteCustomer', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { customerName, force } = req.body;
   if (!customerName || customerName.trim() === '') {
     return res.status(400).json({ success: false, message: 'Customer name is required' });
   }
 
-  const deletedCustomer = await Customer.findOneAndDelete({
+  const customer = await Customer.findOne({
     customerName: { $regex: new RegExp(`^${customerName.trim()}$`, 'i') },
   });
-  if (!deletedCustomer) {
+  if (!customer) {
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }
+
+  const totalBalanceDue = roundMoney(customer.orders.reduce((sum, o) => sum + (o.balanceDue || 0), 0));
+  if (totalBalanceDue > 0 && force !== true) {
+    return res.status(409).json({
+      success: false,
+      message: `This customer has an outstanding balance of ${totalBalanceDue}. Pass force: true to delete anyway.`,
+      totalBalanceDue,
+      requiresForce: true,
+    });
+  }
+
+  const deletedCustomer = await Customer.findOneAndDelete({ _id: customer._id });
 
   await logAudit({
     action: 'customer.deleted',

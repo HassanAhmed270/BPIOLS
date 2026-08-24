@@ -357,3 +357,120 @@ Open / known limitations
 - `GET /dashboard/load`'s placement in `routes/orders.js` was a judgment
   call, not called for explicitly in production.md — flagged above,
   worth confirming it's the intended home.
+
+---
+
+Stage 4 — Customer Data Integrity & Access Control
+
+Changed
+
+- `routes/customers.js`'s `POST /customer/deleteCustomer`:
+  - Added `requireAdmin` (alongside the existing `requireAuth`), closing
+    the access-control gap — a worker token now gets rejected before the
+    handler runs at all.
+  - Added an outstanding-balance check: the route now looks up the
+    customer first, sums `orders[].balanceDue`, and if that total is
+    greater than 0, returns `409` with `{ success: false, totalBalanceDue,
+    requiresForce: true, message }` instead of deleting — unless the
+    request body includes `force: true`, in which case deletion proceeds
+    as an explicit, deliberate override. A zero-balance customer deletes
+    normally with no change in behavior from before this stage.
+  - The audit log entry for `customer.deleted` already captures the full
+    customer document (including `orders[]` with each `balanceDue`) in
+    its `before` snapshot, so a forced deletion's outstanding balance is
+    already on the audit trail with no schema change needed.
+- `models/Customers.js`: no changes were needed. The `orders[].balanceDue`
+  field and the `totalBalanceDue` virtual this stage relies on already
+  existed (added ahead of schedule during Stage 3/5-prep, per that file's
+  own comments), and production.md's third task (reconciliation) turned
+  out to be a verification task rather than a code-change task — see
+  below.
+- Reconciliation check (production.md's third implementation task):
+  reviewed every code path that writes `Order.amountPaid`/`balanceDue`
+  (`routes/billing.js`'s `orderDetails` commit, `routes/orders.js`'s
+  `edit` and `refund`) and confirmed each one already updates the
+  matching `Customer.orders[]` entry in the same DB transaction
+  (`routes/orders.js` lines ~202-206 and ~304-308, `routes/billing.js`
+  lines ~360-376). No route exists that mutates an Order's money fields
+  without also syncing the Customer-side copy — verified by full route
+  inventory (`routes/orders.js` and `routes/billing.js` route lists),
+  not just spot-checking. This is a verification finding, not a code
+  change; documented here per this stage's own completion criteria
+  rather than left unstated.
+- Added `tests/customerBalance.test.js` (Stage 1's harness): mirrors the
+  outstanding-balance `reduce()` used by the new delete-block logic (zero
+  orders, all-paid, multiple outstanding balances, a missing
+  `balanceDue` field, fractional-cent rounding). Added to package.json's
+  explicit test-file list per Stage 1's own noted convention.
+
+Flagged, not actioned (outside this stage's Affected areas): implementing
+the "explicit forced confirmation" override means the API can now return
+`409`/`requiresForce: true`, but `frontend/src/pages/Customers.jsx`'s
+`handleDelete` only does `alert(data.message)` on any non-success
+response — there is currently no UI path for an admin to send
+`force: true`. The backend correctly blocks the deletion either way (an
+admin without the override literally cannot delete a customer with a
+balance through today's UI, which satisfies "cannot be deleted without an
+explicit, deliberate override" defensively), but the override itself is
+only reachable via a direct API call (curl/Postman) right now, not through
+the app. production.md's Stage 4 Affected areas lists only
+`routes/customers.js` and `models/Customers.js`, not frontend, so this was
+not fixed here — flagged for a decision rather than silently expanding
+scope into frontend/.
+
+Verified
+
+- `node --check routes/customers.js`: clean.
+- Static middleware-chain check (no live Mongo needed): required
+  `routes/customers.js` directly and inspected the Express route stack
+  for `/customer/deleteCustomer` — confirmed the middleware order is
+  exactly `requireAuth`, `requireAdmin`, handler.
+- Boot test (single `bash_tool` call): booted the server with a real
+  `.env` (JWT_SECRET set, no live Mongo — same limitation as Stages 2/3,
+  no `mongod` available in this sandbox) and hit the route with curl. A
+  request with no `Authorization` header correctly gets `401` before
+  reaching any handler code. A request with a valid worker-role JWT also
+  came back `401` rather than the expected `403` — but this is because
+  `requireAuth` itself now does a DB read (`User.findById`, added in
+  Stage 2) that hangs and times out against the connection-less DB
+  before ever reaching `requireAdmin`, not a Stage 4 regression; the
+  static middleware-chain check above is the reliable confirmation that
+  `requireAdmin` is correctly wired in after `requireAuth`. A full live
+  role-gating and balance-block test (worker→403, admin+balance→409,
+  admin+force→200, admin+zero-balance→200, each confirmed against a real
+  DB) is recommended manually and listed below.
+- `npm test`: 56/56 passing (51 from Stage 1-3 + 5 new), run from a fresh
+  `npm install`.
+- No frontend files touched this stage (confirmed via `git diff --stat --
+  frontend/` — empty), so no frontend build was required or run — this is
+  also why the frontend gap above was flagged rather than silently fixed.
+- `git status --short` / `git diff --stat` confirm only `routes/
+  customers.js`, `package.json`, and the new `tests/customerBalance.test.js`
+  changed — `models/Customers.js` was reviewed but needed no edit.
+- `node_modules` and the scratch `.env` removed after verification, before
+  packaging.
+
+Open / known limitations
+
+- No live MongoDB available in this sandbox (same gap as Stages 2-3) —
+  the role-gating and balance-block logic could not be exercised
+  end-to-end against a real database. Recommended manual check: as a
+  worker, attempt `POST /customer/deleteCustomer` → expect `403`; as an
+  admin, attempt it on a customer with `orders[].balanceDue > 0` → expect
+  `409` with `requiresForce: true`; retry with `force: true` in the body →
+  expect `200` and an audit-log entry whose `before` snapshot shows the
+  outstanding balance at time of deletion; attempt it on a zero-balance
+  customer as admin with no `force` → expect `200`, unchanged from
+  pre-Stage-4 behavior.
+- Frontend force-flow gap: **decided.** The person confirmed leaving this
+  as-is — the override stays API-only, with no "force delete" button
+  added to `Customers.jsx`. This is intentional, not an oversight: it
+  makes deleting a customer with an outstanding balance deliberately
+  hard to do by accident from the app. No further action needed here
+  unless revisited in a later stage.
+- The reconciliation review above is current as of Stage 4 — it covers
+  every route that exists today. Stage 5 (refund & edit financial
+  correctness overhaul) explicitly changes `amountPaid`/`balanceDue`
+  math further and will need to preserve this same sync-in-the-same-
+  transaction pattern; production.md already calls this out as Stage 5's
+  own concern.
