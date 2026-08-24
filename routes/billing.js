@@ -323,16 +323,38 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
 
       const verifiedTotal = roundMoney(verifiedProducts.reduce((sum, p) => sum + p.amount, 0));
 
+      // Stage 5 (scope extended from routes/orders.js into this route,
+      // per an explicit decision — see production-progress.md — since
+      // customer store credit is otherwise generated but never used):
+      // re-read the customer's current creditBalance inside the
+      // transaction (session-scoped, not from an earlier read) and apply
+      // as much of it as covers this order's total, same pattern as the
+      // supplier-credit auto-apply in routes/suppliers.js. Walk-in sales
+      // have no Customer document and never carry credit.
+      let creditApplied = 0;
+      let newCreditBalance = 0;
+      if (!isWalkIn) {
+        const customerDoc = await Customer.findOne({ customerName: draft.customerName }).session(session);
+        if (!customerDoc) {
+          throw new AppError(400, `Customer "${draft.customerName}" no longer exists.`);
+        }
+        const existingCredit = roundMoney(customerDoc.creditBalance || 0);
+        creditApplied = roundMoney(Math.min(existingCredit, verifiedTotal));
+        newCreditBalance = roundMoney(existingCredit - creditApplied);
+      }
+      const netOwed = roundMoney(verifiedTotal - creditApplied);
+
       // Payment (Stage 5): a bill no longer has to be paid in full to
       // commit — whatever's short becomes the customer's balanceDue.
-      // Capped at the total: anything paid beyond that is change handed
-      // back to the customer, not credit applied to the order. This is
+      // Capped at netOwed (the total less any credit just applied):
+      // anything paid beyond that is change handed back to the
+      // customer, not credit applied to the order. This is
       // `draft.paidInput`, not a request param, for the same
       // tamper-resistance reason as everything else committed from the
       // draft (Stage 4).
-      const amountPaid = roundMoney(Math.min(Math.max(draft.paidInput || 0, 0), verifiedTotal));
-      const balanceDue = roundMoney(Math.max(0, verifiedTotal - amountPaid));
-      const paymentStatus = amountPaid <= 0 ? 'unpaid' : balanceDue > 0 ? 'partial' : 'paid';
+      const amountPaid = roundMoney(Math.min(Math.max(draft.paidInput || 0, 0), netOwed));
+      const balanceDue = roundMoney(Math.max(0, netOwed - amountPaid));
+      const paymentStatus = amountPaid <= 0 ? (balanceDue > 0 ? 'unpaid' : 'paid') : balanceDue > 0 ? 'partial' : 'paid';
       const payments = amountPaid > 0 ? [{ amount: amountPaid, date: new Date(), method: draft.paymentMethod || 'cash' }] : [];
 
       const created = await Order.create(
@@ -345,6 +367,7 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
             cashier: req.user.username,
             amountPaid,
             balanceDue,
+            creditApplied,
             paymentStatus,
             payments,
           },
@@ -361,6 +384,7 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
         await Customer.updateOne(
           { customerName: draft.customerName },
           {
+            $set: { creditBalance: newCreditBalance },
             $push: {
               orders: {
                 orderNo: draft.billID,
@@ -368,6 +392,7 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
                 totalAmount: verifiedTotal,
                 amountPaid,
                 balanceDue,
+                creditApplied,
               },
             },
           },

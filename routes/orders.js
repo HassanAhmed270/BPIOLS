@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const Customer = require('../models/Customers');
 const Refund = require('../models/Refunds');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -12,7 +13,7 @@ const { deriveCostSource, restoreConsumption } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { getDashboardSummary } = require('../lib/reports');
 const { logAudit } = require('../lib/auditLog');
-const { isValidOrderId, isValidDiscount } = require('../lib/validators');
+const { isValidOrderId, isValidDiscount, isValidProductId } = require('../lib/validators');
 
 const router = express.Router();
 
@@ -59,6 +60,7 @@ router.get('/api/orders', requireAuth, asyncHandler(async (req, res) => {
       totalAmount: o.totalAmount,
       amountPaid: o.amountPaid,
       balanceDue: o.balanceDue,
+      creditApplied: o.creditApplied || 0,
       paymentStatus: o.paymentStatus,
       status: o.status,
       displayStatus: o.status === 'refunded' ? 'refunded' : o.paymentStatus,
@@ -92,10 +94,22 @@ router.get('/api/orders/:orderID', requireAuth, asyncHandler(async (req, res) =>
 // requireAdmin — this is the first real use of that middleware beyond
 // the manual stock-correction route from Stage 3.
 
+// Stage 5: an edit/refund that shrinks totalAmount below what was already
+// paid used to leave amountPaid untouched, so the overpayment silently
+// vanished (balanceDue just clamped to 0, with no record of the extra
+// money anywhere). This now returns that freed-up amount ("settlement")
+// so the caller can hand it back as cash or convert it to customer
+// credit — either way amountPaid is capped down to the new total so the
+// order's own numbers stay internally consistent.
 function recomputeOrderTotals(order) {
   order.totalAmount = roundMoney(order.products.reduce((sum, p) => sum + p.amount, 0));
+  const settlement = roundMoney(Math.max(0, order.amountPaid - order.totalAmount));
+  if (settlement > 0) {
+    order.amountPaid = roundMoney(order.amountPaid - settlement);
+  }
   order.balanceDue = roundMoney(Math.max(0, order.totalAmount - order.amountPaid));
   order.paymentStatus = order.amountPaid <= 0 ? 'unpaid' : order.balanceDue > 0 ? 'partial' : 'paid';
+  return settlement;
 }
 
 // Reduces (or removes, if newQty === 0) one line item's quantity,
@@ -194,16 +208,33 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       }
 
       const beforeOrder = order.toObject();
+      const historyStartIdx = order.editHistory.length;
       await applyLineReduction(order, productID, qty, reason.trim(), 'edit', req.user.username, session);
-      recomputeOrderTotals(order);
+      // Stage 5: an edit is a correction/exchange, not a cash-handling
+      // event at the register — any overpayment it frees up is always
+      // converted to store credit, never handed back as cash.
+      const creditGenerated = recomputeOrderTotals(order);
+      for (let i = historyStartIdx; i < order.editHistory.length; i++) {
+        order.editHistory[i].settlement = creditGenerated > 0 ? 'credit' : 'none';
+        order.editHistory[i].creditAmount = creditGenerated;
+      }
       await order.save({ session });
 
-      // Keep the customer's embedded order summary (Stage 5) in sync.
-      await Customer.updateOne(
-        { customerName: order.customerName, 'orders.orderNo': order.orderID },
-        { $set: { 'orders.$.totalAmount': order.totalAmount, 'orders.$.balanceDue': order.balanceDue } },
-        { session }
-      );
+      // Keep the customer's embedded order summary (Stage 5) in sync,
+      // and credit the customer's running balance if this edit freed up
+      // an overpayment.
+      const customerUpdate = {
+        $set: {
+          'orders.$.totalAmount': order.totalAmount,
+          'orders.$.amountPaid': order.amountPaid,
+          'orders.$.balanceDue': order.balanceDue,
+        },
+      };
+      if (creditGenerated > 0) {
+        customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
+        customerUpdate.$inc = { creditBalance: creditGenerated };
+      }
+      await Customer.updateOne({ customerName: order.customerName, 'orders.orderNo': order.orderID }, customerUpdate, { session });
 
       await logAudit(
         {
@@ -227,7 +258,7 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
 }));
 
 router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { items, reason } = req.body;
+  const { items, reason, settlement } = req.body;
   const { orderID } = req.params;
 
   if (!isValidOrderId(orderID)) {
@@ -239,6 +270,9 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
   if (!reason || !reason.trim()) {
     return res.status(400).json({ success: false, message: 'A reason is required for every refund.' });
   }
+  // Stage 5: cash-back by default, matching what the register was doing
+  // before this stage — an admin may explicitly choose 'credit' instead.
+  const requestedSettlement = settlement === 'credit' ? 'credit' : 'cash';
   for (const item of items) {
     if (!isValidProductId(item.productID) || !Number.isInteger(item.quantity) || item.quantity < 1) {
       return res.status(400).json({ success: false, message: 'Invalid refund item.' });
@@ -260,6 +294,7 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
 
       const beforeOrder = order.toObject();
       const refundedItems = [];
+      const historyStartIdx = order.editHistory.length;
       let refundAmount = 0;
 
       for (const item of items) {
@@ -279,7 +314,17 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       }
 
       refundAmount = roundMoney(refundAmount);
-      recomputeOrderTotals(order);
+      // Stage 5: this is the overpayment freed up by the refund (which
+      // can differ from refundAmount — e.g. a partially-paid order's
+      // refund frees up nothing to settle even though items were
+      // refunded). Only settled (cash or credit) when > 0.
+      const overpaid = recomputeOrderTotals(order);
+      const creditGenerated = overpaid > 0 && requestedSettlement === 'credit' ? overpaid : 0;
+      const disposition = overpaid > 0 ? requestedSettlement : 'none';
+      for (let i = historyStartIdx; i < order.editHistory.length; i++) {
+        order.editHistory[i].settlement = disposition;
+        order.editHistory[i].creditAmount = creditGenerated;
+      }
 
       // Refunding always finalizes the order — no partial-refund status,
       // per spec ("mark order status: refunded, don't delete").
@@ -295,17 +340,26 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
             refundedItems,
             reason: reason.trim(),
             processedBy: req.user.username,
+            settlement: disposition,
+            creditGenerated,
           },
         ],
         { session }
       );
       refund = created[0];
 
-      await Customer.updateOne(
-        { customerName: order.customerName, 'orders.orderNo': order.orderID },
-        { $set: { 'orders.$.totalAmount': order.totalAmount, 'orders.$.balanceDue': order.balanceDue } },
-        { session }
-      );
+      const customerUpdate = {
+        $set: {
+          'orders.$.totalAmount': order.totalAmount,
+          'orders.$.amountPaid': order.amountPaid,
+          'orders.$.balanceDue': order.balanceDue,
+        },
+      };
+      if (creditGenerated > 0) {
+        customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
+        customerUpdate.$inc = { creditBalance: creditGenerated };
+      }
+      await Customer.updateOne({ customerName: order.customerName, 'orders.orderNo': order.orderID }, customerUpdate, { session });
 
       await logAudit(
         {

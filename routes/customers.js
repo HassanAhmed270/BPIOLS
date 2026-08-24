@@ -25,7 +25,7 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
       }
     : {};
 
-  const data = await Customer.find(filter, 'customerName mobileNo emergencyMobile email address orders');
+  const data = await Customer.find(filter, 'customerName mobileNo emergencyMobile email address orders creditBalance');
   const mapped = data.map((c) => ({
     _id: c._id,
     customerName: c.customerName,
@@ -35,6 +35,10 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
     address: c.address,
     orders: c.orders,
     totalBalanceDue: roundMoney(c.orders.reduce((sum, o) => sum + (o.balanceDue || 0), 0)),
+    // Stage 5 — scope extended from routes/customers.js (not listed in
+    // production.md's Stage 5 Affected areas) so the store-credit ledger
+    // is actually visible somewhere in the app, mirroring Suppliers.jsx.
+    creditBalance: roundMoney(c.creditBalance || 0),
   }));
 
   const { data: customers, total } = sortAndPaginate(mapped, { sortBy, sortDir, page, limit });

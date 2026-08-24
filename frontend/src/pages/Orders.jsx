@@ -39,6 +39,7 @@ export default function Orders() {
   const [editForm, setEditForm] = useState({ productID: '', newQty: '', reason: '' });
   const [refundForm, setRefundForm] = useState({});
   const [refundReason, setRefundReason] = useState('');
+  const [refundSettlement, setRefundSettlement] = useState('cash');
 
   const loadOrders = async () => {
     setLoading(true);
@@ -142,6 +143,7 @@ export default function Orders() {
       const data = await api.refundOrder(expandedID, {
         items,
         reason: refundReason.trim(),
+        settlement: refundSettlement,
       });
 
       console.log('REFUND RESPONSE:', data);
@@ -150,9 +152,14 @@ export default function Orders() {
         throw new Error(data?.message || 'Refund completed but no refund details were returned.');
       }
 
-      alert(`Refund processed: ${formatMoney(data.refund.refundAmount)}`);
+      let message = `Refund processed: ${formatMoney(data.refund.refundAmount)}`;
+      if (data.refund.creditGenerated > 0) {
+        message += `\n${formatMoney(data.refund.creditGenerated)} was added to the customer's store credit.`;
+      }
+      alert(message);
       setRefundForm({});
       setRefundReason('');
+      setRefundSettlement('cash');
       await refreshDetail(expandedID);
     } catch (err) {
       alert('Refund failed: ' + err.message);
@@ -284,6 +291,9 @@ export default function Orders() {
                                   </div>
                                   <div className="flex justify-between"><span>Paid</span><span>{formatMoney(detail.order.amountPaid)}</span></div>
                                   <div className="flex justify-between"><span>Balance Due</span><span>{formatMoney(detail.order.balanceDue)}</span></div>
+                                  {detail.order.creditApplied > 0 && (
+                                    <div className="flex justify-between text-green-700"><span>Store credit applied</span><span>{formatMoney(detail.order.creditApplied)}</span></div>
+                                  )}
 
                                   {detail.order.editHistory?.length > 0 && (
                                     <div>
@@ -292,6 +302,8 @@ export default function Orders() {
                                         {detail.order.editHistory.map((e, i) => (
                                           <li key={i} className="border-b pb-1">
                                             {e.productID}: {e.originalQty} → {e.newQty} ({e.action}) by {e.editedBy} on {new Date(e.editedAt).toLocaleString()} — "{e.reason}"
+                                            {e.settlement === 'credit' && <> — {formatMoney(e.creditAmount)} added to store credit</>}
+                                            {e.settlement === 'cash' && <> — {formatMoney(e.creditAmount)} cash back</>}
                                           </li>
                                         ))}
                                       </ul>
@@ -304,6 +316,7 @@ export default function Orders() {
                                         {detail.refunds.map((r) => (
                                           <li key={r._id} className="border-b pb-1">
                                             {formatMoney(r.refundAmount)} by {r.processedBy} on {new Date(r.refundDate).toLocaleString()} — "{r.reason}"
+                                            {r.settlement === 'credit' && <> — {formatMoney(r.creditGenerated)} store credit</>}
                                           </li>
                                         ))}
                                       </ul>
@@ -374,6 +387,27 @@ export default function Orders() {
                                             )}
                                           </label>
                                         ))}
+                                        <div className="flex gap-3 text-xs items-center">
+                                          <span>Settle as:</span>
+                                          <label className="flex items-center gap-1">
+                                            <input
+                                              type="radio"
+                                              name="refundSettlement"
+                                              checked={refundSettlement === 'cash'}
+                                              onChange={() => setRefundSettlement('cash')}
+                                            />
+                                            Cash back
+                                          </label>
+                                          <label className="flex items-center gap-1">
+                                            <input
+                                              type="radio"
+                                              name="refundSettlement"
+                                              checked={refundSettlement === 'credit'}
+                                              onChange={() => setRefundSettlement('credit')}
+                                            />
+                                            Store credit
+                                          </label>
+                                        </div>
                                         <input
                                           type="text"
                                           placeholder="Reason (required)"

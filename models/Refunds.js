@@ -18,7 +18,11 @@ const refundSchema = new Schema({
   ],
   reason: { type: String, default: '' },
   refundDate: { type: Date, default: Date.now },
-  processedBy: { type: String, required: true }
+  processedBy: { type: String, required: true },
+  // Stage 5 — how the freed-up overpayment (if any) was settled. 'none'
+  // when this refund didn't free up any overpayment to begin with.
+  settlement: { type: String, enum: ['none', 'cash', 'credit'], default: 'none' },
+  creditGenerated: { type: Number, min: 0, default: 0 }
 });
 
 module.exports = mongoose.model('Refund', refundSchema);

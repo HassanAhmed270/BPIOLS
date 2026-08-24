@@ -146,6 +146,22 @@ Important invariants:
 - Indexed fields (Stage 3): `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on its existing
   `unique: true` index; no separate index was added.
+- Customer store credit (Stage 5): `Customer.creditBalance` mirrors
+  `Supplier.creditBalance` — a running total the customer is owed from a
+  past refund/edit-down settled as credit rather than cash. An **edit**
+  always settles any freed-up overpayment as credit (an edit is a
+  correction/exchange, not a cash event); a **refund** takes an explicit
+  `settlement: 'cash'|'credit'` choice in the request body, defaulting to
+  `'cash'`. `POST /billing/orderDetails` auto-applies existing credit
+  against a new order's total before computing `amountPaid`/`balanceDue`,
+  mirroring the supplier-credit auto-apply in `POST /supplier/purchase`.
+  `Order.creditApplied` records how much credit covered a given order;
+  `Customer.orders[].creditApplied`/`creditGenerated` and
+  `Order.editHistory[].settlement`/`creditAmount` and
+  `Refund.settlement`/`creditGenerated` carry the same information at
+  their respective levels. `recomputeOrderTotals` (routes/orders.js) now
+  returns the "settlement" amount it freed up, instead of letting an
+  overpayment silently vanish behind `balanceDue`'s clamp-to-zero.
 
 ## Request flow
 

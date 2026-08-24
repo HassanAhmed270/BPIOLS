@@ -9,7 +9,13 @@ const customerOrderSchema = new mongoose.Schema({
     orderDate: { type: Date, required: true, default: Date.now },
     totalAmount: { type: Number, required: true, min: 0, default: 0 },
     amountPaid: { type: Number, required: true, min: 0, default: 0 },
-    balanceDue: { type: Number, required: true, min: 0, default: 0 }
+    balanceDue: { type: Number, required: true, min: 0, default: 0 },
+    // Stage 5 — mirrors Supplier.purchases' creditApplied/creditGenerated.
+    // creditApplied: how much of this order was covered by credit the
+    // customer already had at checkout. creditGenerated: how much new
+    // credit this order's own edit/refund history produced.
+    creditApplied: { type: Number, min: 0, default: 0 },
+    creditGenerated: { type: Number, min: 0, default: 0 }
 }, { _id: false }); // disable _id for subdocuments if not needed
 
 const customerSchema = new mongoose.Schema({
@@ -39,7 +45,12 @@ const customerSchema = new mongoose.Schema({
         required: false,
         set: value => value ? value.trim() : ''
     },
-    orders: [customerOrderSchema] // Array of orders, one entry per order placed
+    orders: [customerOrderSchema], // Array of orders, one entry per order placed
+    // Stage 5 — running store credit this customer is owed from a past
+    // refund/edit-down settled as credit instead of cash. Always >= 0.
+    // Auto-applied to reduce what's owed on this customer's next order
+    // (POST /billing/orderDetails), mirroring Supplier.creditBalance.
+    creditBalance: { type: Number, min: 0, default: 0 }
 });
 
 // Optional: virtual to get orders sorted by date descending

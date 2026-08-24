@@ -128,6 +128,9 @@ export default function Billing() {
                 mobileNo: row.mobileNo || '',
                 email: row.email || '',
                 address: row.address || '',
+                // Stage 5 — store credit auto-applies at checkout; shown
+                // here so the cashier isn't surprised by the total.
+                creditBalance: row.creditBalance || 0,
               }]))
             );
           }),
@@ -888,6 +891,12 @@ export default function Billing() {
                     <span>Grand Total</span>
                     <span>{formatMoney(grandTotal)}</span>
                   </div>
+                  {customerDirectory[customer]?.creditBalance > 0 && (
+                    <div className="flex justify-between text-xs text-green-700 mt-1">
+                      <span>Store credit available</span>
+                      <span>{formatMoney(customerDirectory[customer].creditBalance)} (auto-applied at checkout)</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm mt-1 items-center">
                     <span>Paid</span>
                     <input

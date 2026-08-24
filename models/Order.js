@@ -47,6 +47,10 @@ const orderSchema = new Schema({
   // full at commit time; the difference becomes customer credit.
   amountPaid: { type: Number, required: true, min: 0, default: 0 },
   balanceDue: { type: Number, required: true, min: 0, default: 0 },
+  // Stage 5 — how much of this order's total was covered by pre-existing
+  // Customer.creditBalance at checkout (mirrors Supplier.purchases'
+  // creditApplied). Recorded once at commit, never re-read afterward.
+  creditApplied: { type: Number, min: 0, default: 0 },
   paymentStatus: {
     type: String,
     enum: ['paid', 'partial', 'unpaid'],
@@ -74,7 +78,14 @@ const orderSchema = new Schema({
       originalQty: { type: Number, required: true, min: 0 },
       newQty: { type: Number, required: true, min: 0 },
       reason: { type: String, required: true },
-      action: { type: String, enum: ['edit', 'refund'], required: true }
+      action: { type: String, enum: ['edit', 'refund'], required: true },
+      // Stage 5 — how any overpayment freed up by this change was
+      // settled. 'none' when the change didn't free up any overpayment.
+      // Edits are always forced to 'credit' (an edit is a correction/
+      // exchange, not a cash-handling event); refunds default to 'cash'
+      // but an admin may choose 'credit' instead.
+      settlement: { type: String, enum: ['none', 'cash', 'credit'], default: 'none' },
+      creditAmount: { type: Number, min: 0, default: 0 }
     }
   ]
 });
