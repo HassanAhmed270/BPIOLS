@@ -224,6 +224,76 @@ before.
 
 ---
 
+Stage 8 — Final Cleanup Pass — DONE
+
+Closed all four items from `production.md`:
+
+- `routes/products.js`: `POST /product/undo` now calls `isValidProductId()`
+  and returns the same 400 as `/api/product` on a malformed ID, before any
+  DB read.
+- `middleware/rateLimit.js`: `loginLimiter` raised from `max: 10` to
+  `max: 20` and added `skipSuccessfulRequests: true`. Rationale: this is a
+  single shared IP for the whole shop, so the old counter combined every
+  worker's successful shift-change logins with genuine failed-attempt
+  budget, risking a lockout with no attacker involved. Now only failed
+  attempts consume the budget, and the cap itself is a little more
+  forgiving for a multi-worker single terminal while still bounding
+  brute-force guesses per 15-minute window.
+- `frontend/src/pages/Billing.jsx`: added a `totalDiscount` (sum of each
+  line's $ discount) alongside the existing `grandTotal`, and a
+  conditional "Discount" line (only shown when > 0) in both the live cart
+  summary and the standard `printReceiptFor` printout, just above Grand
+  Total. The Stage 17 "Special Bill" layout was deliberately left
+  untouched — its own code comments document that it intentionally omits
+  a discount column to match the catering-invoice reference template, and
+  changing that wasn't part of this stage's issue list.
+- `lib/reports.js`: `refundedOrders` was counted from `Order` documents
+  scoped by `orderDate`, while `refundedAmount` was summed from `Refund`
+  documents scoped by `refundDate` — different date fields, different
+  scopes. Removed the `refundedOrders` facet from the `Order` aggregate;
+  `refundedOrders` is now `orderIDs.length` from a `$addToSet` on the same
+  `Refund.aggregate` call (same `refundDate` match) that already produces
+  `refundedAmount`, so both numbers now come from the same query and the
+  same date scope. Output field names/shape are unchanged, so
+  `routes/export.js`'s summary sheet and `Dashboard.jsx` needed no changes.
+
+Verified: `node --check` clean on all three touched backend files;
+66/66 tests passing (no new test file needed — none of these four fixes
+introduced new pure-math logic distinct from what Stage 1 already covers;
+`isValidProductId` and the money math are already unit-tested, this stage
+only wires/aligns existing tested logic); boot test (single `bash_tool`
+call) with a real `.env`, no live Mongo: `POST /product/undo`,
+`POST /api/product`, and `GET /dashboard/load` all correctly return 401
+with no token (confirms the new validation line and both touched route
+files load without throwing — `requireAuth` rejects before any DB call,
+so this is meaningful even without Mongo); a 24-request burst against
+`POST /auth/login` from one IP hit `429` on the 21st request, confirming
+`max: 20` and `skipSuccessfulRequests` are wired correctly (the first 20
+each hit the still-configured 10s Mongo lookup timeout and returned 500,
+expected with no live Mongo — the rate limiter itself fired at the right
+count regardless). `npm run build` (frontend) clean. `git diff --stat`
+confirms exactly the 4 intended files changed, matching stage's Affected
+areas exactly.
+
+Open: no live MongoDB in this sandbox (same gap as every prior stage) —
+the `isValidProductId` 400-path on `/product/undo` was verified by direct
+code parity with the already-tested `/api/product` validator call, not by
+an authenticated request (would need a real admin token + DB); the
+discount line's rendering was verified by code review and a clean
+`vite build`, not a live browser screenshot; the `refundedOrders`/
+`refundedAmount` alignment was verified by reading the aggregation logic,
+not against real refund data (no Mongo). A manual pass is recommended:
+(a) as admin, call `/product/undo` with a malformed `productId` and
+confirm the 400; (b) place several rapid failed logins from one terminal
+during a busy shift and confirm workers aren't locked out by each other's
+successful logins; (c) add a line-item discount in Billing and confirm
+the new "Discount" row appears on both the on-screen cart and the printed
+receipt; (d) refund an order placed in a prior date-range period and
+confirm the dashboard's refund count and refund amount for the *current*
+period either both include it or both exclude it.
+
+---
+
 Compaction note (this pass)
 
 Stages 1-4 were condensed from their original multi-page entries (full

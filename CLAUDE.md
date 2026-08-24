@@ -183,6 +183,20 @@ Important invariants:
   `routes/billing.js`) — keep both in sync if the sentinel value ever
   changes. Offline sync still does not apply Stage 5 customer credit;
   that auto-apply only exists in the live checkout path.
+- Final cleanup pass (Stage 8): `POST /product/undo` validates
+  `productId` with `isValidProductId()` the same way `POST /api/product`
+  does. `loginLimiter` (`middleware/rateLimit.js`) is `max: 20` per
+  15-minute window with `skipSuccessfulRequests: true` — tuned for a
+  single shared shop IP where multiple workers' successful logins
+  shouldn't eat into the failed-attempt budget. Billing's cart summary
+  and standard receipt printout (`printReceiptFor`, not the Stage 17
+  Special Bill) show a "Discount" line (sum of each line's $ discount)
+  above Grand Total whenever it's greater than zero. `lib/reports.js`'s
+  `getDashboardSummary` derives both `refundedOrders` and
+  `refundedAmount` from the same `Refund.aggregate` call scoped by
+  `refundDate` (`refundedOrders` via `$addToSet` on `orderID`), so the
+  two numbers always agree on the same date range; `refundedOrders` is no
+  longer computed from `Order.status`/`orderDate`.
 
 ## Request flow
 

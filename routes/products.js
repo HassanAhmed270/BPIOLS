@@ -204,6 +204,9 @@ router.delete('/product/:productID', requireAuth, requireAdmin, asyncHandler(asy
 
 router.post('/product/undo', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { productId, productName, category, price, stock, supplierId, lowStockThreshold } = req.body;
+  if (!isValidProductId(productId)) {
+    return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
+  }
   const threshold = parseThreshold(lowStockThreshold);
   const resolvedSupplier = await resolveSupplierId(supplierId);
   if (!resolvedSupplier.ok) {

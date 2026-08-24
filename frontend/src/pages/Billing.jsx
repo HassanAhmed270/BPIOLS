@@ -238,6 +238,14 @@ export default function Billing() {
     return roundMoney(total);
   }, [billingItems]);
 
+  const totalDiscount = useMemo(() => {
+    const total = Object.values(billingItems).reduce((sum, item) => {
+      const subtotal = item.unitPrice * item.quantity;
+      return sum + subtotal * (item.discount / 100);
+    }, 0);
+    return roundMoney(total);
+  }, [billingItems]);
+
   const balance = useMemo(() => {
     const paidNum = parseFloat(paid) || 0;
     return roundMoney(paidNum - grandTotal);
@@ -480,6 +488,7 @@ export default function Billing() {
         <thead><tr><th>S.no</th><th>Code</th><th>Product</th><th>Price</th><th>Qty</th><th>Total</th><th>Save</th><th>Net</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      ${totalDiscount > 0 ? `<div class="totals"><span>Discount</span><span>-${formatMoney(totalDiscount)}</span></div>` : ''}
       <div class="totals"><span>Grand Total</span><span>${formatMoney(total)}</span></div>
       <div class="totals"><span>Paid</span><span>${formatMoney(paidNum)}</span></div>
       <div class="totals"><span>${paidNum >= total ? 'Change' : 'Balance Due (Credit)'}</span><span>${formatMoney(Math.abs(paidNum - total))}</span></div>
@@ -887,6 +896,12 @@ export default function Billing() {
                       })}
                     </tbody>
                   </table>
+                  {totalDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-gray-600 mt-1">
+                      <span>Discount</span>
+                      <span>-{formatMoney(totalDiscount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold text-base border-t pt-2 mt-2">
                     <span>Grand Total</span>
                     <span>{formatMoney(grandTotal)}</span>
