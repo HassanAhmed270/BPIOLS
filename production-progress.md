@@ -83,124 +83,111 @@ intentional, stays API-only, no further action.
 
 Stage 5 — Refund & Edit Financial Correctness — DONE
 
-Scope note: two backend files outside production.md's listed Affected
-areas (`routes/billing.js`, `routes/customers.js`) were touched, with
-the person's explicit go-ahead given mid-stage — the auto-apply-credit-
-at-checkout requirement genuinely can't work without touching checkout,
-and the credit ledger needs to be visible via the customers list
-endpoint. Recorded here per the project's scope-flagging rule.
+`routes/billing.js`/`routes/customers.js` touched outside listed scope
+(person's explicit go-ahead mid-stage — checkout needed to know about
+customer credit). Design decision: an **edit**'s freed-up overpayment
+always becomes store credit (correction, not a cash event); a
+**refund** takes an explicit `settlement: 'cash'|'credit'` choice,
+defaulting to cash-back.
 
-Design decision (person's call, mid-stage): an **edit** is treated as a
-correction/exchange, not a cash event — any overpayment an edit-down
-frees up is always converted to store credit, never handed back as
-cash. A **refund** is an explicit choice per request, defaulting to
-cash-back (matches prior behavior when nothing is specified).
+Added `Order.creditApplied`, `editHistory[].settlement`/`creditAmount`,
+`Customer.creditBalance` + per-order `creditApplied`/`creditGenerated`
+(mirrors `Supplier.creditBalance`), `Refund.settlement`/
+`creditGenerated`. `recomputeOrderTotals` now returns the freed-up
+"settlement" instead of losing it behind `balanceDue`'s clamp-to-zero.
+Checkout (`routes/billing.js`) auto-applies existing customer credit
+before computing `amountPaid`/`balanceDue`, mirroring supplier-credit
+auto-apply; also fixed `paymentStatus`'s `amountPaid <= 0` branch to
+check `balanceDue` instead (credit-covered $0-paid orders are `'paid'`).
+Incidental fixes: `Customer` and `isValidProductId` were used in
+`routes/orders.js` but never `require`d (would throw at runtime).
+Frontend: cash/credit radio on refund, credit columns/labels on
+Orders/Customers/Billing. Added `tests/refundSettlement.test.js`
+(11 cases: the 5 production.md scenarios + edge cases).
 
-Changed
+Verified: `node --check` clean; 66/66 tests passing; boot test (no
+token → 401 on all money routes, confirms no load-time errors); `npm
+run build` clean; diff confirmed to exactly the 10 intended files.
 
-- `models/Order.js` — added `creditApplied` (credit used at checkout for
-  this order). `editHistory` entries gained `settlement`
-  ('none'/'cash'/'credit') and `creditAmount`.
-- `models/Customers.js` — added top-level `creditBalance` (mirrors
-  `Supplier.creditBalance`); per-order `creditApplied`/`creditGenerated`
-  (mirrors `Supplier.purchases`).
-- `models/Refunds.js` — added `settlement` and `creditGenerated`.
-- `routes/orders.js` — `recomputeOrderTotals` now caps `amountPaid` down
-  to the (possibly smaller) new total and *returns* the freed-up
-  overpayment ("settlement") instead of letting it silently vanish
-  behind `balanceDue`'s clamp-to-zero, as it did before this stage.
-  - Edit route: settlement is always converted to customer credit
-    (`Customer.creditBalance` incremented, `orders.$.creditGenerated`
-    set, `editHistory` entries stamped `settlement: 'credit'`).
-  - Refund route: accepts `settlement: 'cash'|'credit'` in the request
-    body (default `'cash'`); only converts to credit if the admin chose
-    `'credit'` *and* there was actually an overpayment to settle
-    (`disposition` is `'none'` otherwise, even if items were refunded).
-    `Refund` record and `editHistory` entries both stamped with the
-    actual disposition.
-  - `/api/orders` list mapping now includes `creditApplied`.
-  - Incidental one-line fixes (pre-existing bugs in a file already being
-    edited, not part of the ask): `Customer` and `isValidProductId` were
-    used in this file but never `require`d — both edit and refund would
-    have thrown `ReferenceError` at runtime the moment either was hit.
-    Both imports added.
-- `routes/billing.js` (scope extended, see note above) — checkout now
-  re-reads the customer's current `creditBalance` inside the commit
-  transaction, applies `min(existingCredit, verifiedTotal)` against the
-  order before computing `amountPaid`/`balanceDue` (mirrors the
-  supplier-credit auto-apply already in `routes/suppliers.js`), and
-  decrements the customer's balance by what was applied. `Order.create`
-  and the `Customer.orders` push both record `creditApplied`.
-  `paymentStatus`'s `amountPaid <= 0` branch was also corrected to check
-  `balanceDue` (an order fully covered by credit, with $0 paid, is
-  `'paid'`, not `'unpaid'`).
-- `routes/customers.js` (scope extended, see note above) — `GET
-  /api/customers` now also returns `creditBalance` per customer.
-- Frontend: `Orders.jsx` — refund form gained a Cash back / Store credit
-  radio choice; order detail now shows `creditApplied`; edit-history and
-  refund lists show the settlement outcome inline. `Customers.jsx` — new
-  "Store Credit" column, matching the Balance Due column's styling
-  convention. `Billing.jsx` — shows the selected customer's available
-  store credit above the Paid field, labeled "auto-applied at checkout".
-- Added `tests/refundSettlement.test.js`: mirrors
-  `recomputeOrderTotals` and the checkout credit-apply math. Covers the
-  five production.md scenarios (full refund of paid-in-full, partial
-  refund of paid-in-full, partial refund of a still-partially-paid
-  order, edit-down, edit-down-then-later-refund) plus a zero-amount edge
-  case, fractional-cent rounding, and three checkout-side credit-apply
-  cases (fully covers, partially covers, no credit). Added to
-  `package.json`'s explicit test-file list.
+Open: no live MongoDB in this sandbox — money math is unit-tested
+against the real route code but not exercised against a real
+transaction; manual pass recommended (edit-down → credit increases;
+refund cash vs credit; credit auto-applies on next order; edit-then-
+refund composes correctly). `production.md` itself not yet amended to
+reflect the billing.js/customers.js scope extension.
+
+---
+
+Stage 6 — In-App User & Worker Management — DONE
+
+New `routes/users.js` (admin-only unless noted): `GET/POST /api/users`
+(list, create — role must be `admin`/`cashier`, password min 8 chars),
+`DELETE /api/users/:username` (blocks self-delete and deleting the last
+remaining admin), `POST /api/users/:username/reset-password`
+(admin-initiated reset), `POST /api/users/me/password` (self-service,
+any logged-in role — verifies current password via bcrypt, returns a
+fresh token like `/auth/refresh` so the caller isn't logged out by their
+own action). All four mutating actions call `logAudit()`
+(`user.created`/`user.deleted`/`user.password_reset`/
+`user.password_changed`) with `targetType: 'user'`. Every password write
+sets `passwordChangedAt`, reusing Stage 2's revocation mechanism as-is —
+no changes needed to `middleware/auth.js` or `models/user.js`.
+
+Frontend: new `Users.jsx` (admin-only, `/workers` route, same
+`AdminRoute` pattern as Audit Log) — worker table with role/added-date,
+delete, and a reset-password modal; an "Add Worker" form alongside it,
+matching `Suppliers.jsx`'s table+form layout. `App.jsx` and
+`Sidebar.jsx` wired (`Workers` link un-disabled — it already existed as
+a disabled placeholder pointing at `/workers`). `AuditLog.jsx` gained
+labels/badges for the four new action types. `api.js` gained
+`getUsers`/`createUser`/`deleteUser`/`resetUserPassword`/
+`changeOwnPassword`.
+
+**Deliberate scope decision:** no self-service "change my own password"
+UI was built. `production.md`'s Stage 6 Affected areas list only
+`Users.jsx` + routing/sidebar as frontend additions; the self-service
+bullet is worded as an endpoint only, with no paired UI file, and
+`Topbar.jsx`/`AuthContext.jsx` (where such a UI would have to live)
+aren't in scope. The `POST /api/users/me/password` endpoint exists and
+works; there's just no in-app entry point to reach it yet. Flagging this
+the same way Stage 4 flagged its "no force-delete UI" decision — worth
+a follow-up if a self-service UI turns out to matter in practice.
+
+No dedicated test file added — `routes/users.js` is CRUD + bcrypt with
+no pure-math logic comparable to Stage 1's money/pricing/costing scope
+or Stage 2's `requireAuth`; every other CRUD route (customers,
+suppliers) is boot-tested only too, not unit-tested, so this stays
+consistent with that existing precedent rather than introducing a
+one-off exception.
 
 Verified
 
-- `node --check` clean on all 6 changed backend files.
-- `npm test`: 66/66 passing (56 from Stage 1-4 + 10 new), fresh
-  `npm install`.
+- `node --check` clean on `main.js` and `routes/users.js`.
+- `npm test`: 66/66 passing (no change from Stage 5 — no new test file),
+  fresh `npm install`.
 - Boot test (single `bash_tool` call, no live Mongo — none available in
-  this sandbox): booted with a real `.env` (proper non-placeholder
-  `JWT_SECRET`), hit `/api/order/:id/edit`, `/api/order/:id/refund`,
-  `/api/customers`, `/billing/orderDetails` with no token (all 401,
-  confirming the modules load without throwing — the missing-`Customer`-
-  import bug above would have surfaced here) and an unmatched `/api/*`
-  path (404).
+  this sandbox): booted with a real `.env`, hit all five new routes with
+  no token (all 401, confirming the module mounts and loads without
+  throwing) and an unmatched `/api/*` path (404).
 - `npm run build` (frontend, fresh `npm install`): clean, no errors.
-- `git status --short` / `git diff --stat` confirm exactly the 10
-  intended files changed (6 backend, 3 frontend, `package.json`) plus
-  the 1 new test file — nothing else.
-- `node_modules` (both root and frontend), `frontend/dist`, and the
-  scratch `.env` removed after verification, before packaging.
+- `git status --short` / `git diff --stat` confirm exactly the 7
+  intended files changed (5 modified, 2 new) — nothing else.
+- `node_modules` (root and frontend), `frontend/dist`, and the scratch
+  `.env`/log removed after verification, before packaging.
 
 Open / known limitations
 
 - No live MongoDB available in this sandbox (same gap as every prior
-  stage) — none of the money math above was exercised against a real
-  transaction. The unit tests pin down the arithmetic exactly as it
-  reads in the real route code; a manual live-DB pass is recommended
-  before relying on this: (a) fully pay an order, edit a line down,
-  confirm `amountPaid` drops and the customer's `creditBalance`
-  increases by the freed amount; (b) refund the same reduced order and
-  choose cash-back, confirm no credit is added; (c) refund another paid
-  order choosing store credit, confirm the `Refund` record and
-  `Customer.creditBalance` agree; (d) place a new order for a customer
-  with existing credit, confirm it's applied and the balance drops;
-  (e) edit-down then later refund the same order, confirm both events'
-  math composes correctly (this exact sequence is unit-tested, but not
-  against a live transaction).
-- `routes/billing.js` and `routes/customers.js` were touched outside
-  production.md's listed Stage 5 Affected areas, with the person's
-  explicit approval mid-stage (see Scope note above) — production.md
-  itself has not been edited to reflect this; worth updating the plan
-  document directly if this pattern (checkout needing to know about
-  customer credit) comes up again in a later stage.
-- Frontend credit UI is intentionally minimal (a label, a column, a
-  radio choice) — no dedicated "credit history" view was built; not
-  called for by production.md's Stage 5 scope.
-- `GET /api/orders/:orderID` (single-order detail) already returns the
-  full `Order` document unmodified, so `creditApplied` and the new
-  `editHistory` fields are already present there with no route change
-  needed — only the `/api/orders` *list* mapping needed an explicit add.
-
----
+  stage) — none of the CRUD/auth logic above was exercised against a
+  real database or a real browser session. A manual live pass is
+  recommended: (a) log in as admin, add a cashier worker, confirm they
+  can log in; (b) reset that worker's password, confirm their existing
+  token stops working immediately; (c) attempt to delete your own
+  account and the last remaining admin, confirm both are blocked;
+  (d) call `POST /api/users/me/password` directly (e.g. via curl) as a
+  logged-in cashier, confirm the old token is invalidated and the
+  returned new token works.
+- No self-service password-change UI — see the scope decision above.
 
 Compaction note (this pass)
 

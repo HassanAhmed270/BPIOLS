@@ -20,6 +20,7 @@ const billingRoutes = require('./routes/billing');
 const suppliersRoutes = require('./routes/suppliers');
 const ordersRoutes = require('./routes/orders');
 const auditRoutes = require('./routes/audit');
+const usersRoutes = require('./routes/users');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -90,6 +91,7 @@ app.use('/', billingRoutes);
 app.use('/', suppliersRoutes);
 app.use('/', ordersRoutes);
 app.use('/', auditRoutes);
+app.use('/', usersRoutes);
 
 // ── Serve the built React frontend (MERN — no server-rendered
 //    views anymore; see progress.md "EJS removal") ──────────────

@@ -13,6 +13,7 @@ import Suppliers from './pages/Suppliers';
 import Orders from './pages/Orders';
 import Reports from './pages/Reports';
 import AuditLog from './pages/AuditLog';
+import Users from './pages/Users';
 
 export default function App() {
   // Stage 11 — starts the background flush loop for any offline sales
@@ -90,6 +91,14 @@ export default function App() {
             element={
               <AdminRoute>
                 <AuditLog />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/workers"
+            element={
+              <AdminRoute>
+                <Users />
               </AdminRoute>
             }
           />

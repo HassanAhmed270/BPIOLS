@@ -105,7 +105,9 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
   `sync.js` (Stage 11), and, as of Stage 3, `products.js`, `customers.js`,
   `billing.js` (incl. `orderDetails` checkout), `suppliers.js` (incl.
   `supplier/purchase`), `orders.js` (incl. edit/refund, `recomputeOrderTotals`/
-  `applyLineReduction`, and `GET /dashboard/load`), `audit.js`. Each mounts at
+  `applyLineReduction`, and `GET /dashboard/load`), `audit.js`, and, as of
+  Stage 6, `users.js` (`/api/users*`, admin-only account management plus
+  the self-service `/api/users/me/password`). Each mounts at
   `app.use('/', ...)` since routes keep their original full paths rather than
   one prefix per file. `main.js` itself now only does app setup, DB
   connection, middleware, route mounting, static frontend serving, the error
@@ -162,6 +164,16 @@ Important invariants:
   their respective levels. `recomputeOrderTotals` (routes/orders.js) now
   returns the "settlement" amount it freed up, instead of letting an
   overpayment silently vanish behind `balanceDue`'s clamp-to-zero.
+- In-app user management (Stage 6): `routes/users.js` covers admin create/
+  delete/reset-password (`/api/users*`) and self-service password change
+  (`/api/users/me/password`, any role). Every password write sets
+  `passwordChangedAt`, invalidating prior tokens via Stage 2's existing
+  mechanism — no changes were needed to `middleware/auth.js` or
+  `models/user.js` to support this. Deleting your own account or the last
+  remaining admin is blocked. Frontend: `Users.jsx` at `/workers`
+  (admin-only, `AdminRoute`) is the only UI surface — there is currently no
+  self-service "change my own password" UI, only the working endpoint; see
+  `production-progress.md` Stage 6 for the scope reasoning.
 
 ## Request flow
 

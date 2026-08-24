@@ -23,6 +23,10 @@ const ACTION_LABELS = {
   'supplier.updated': 'Supplier updated',
   'supplier.deleted': 'Supplier deleted',
   'supplier.purchase': 'Supplier purchase recorded',
+  'user.created': 'Worker added',
+  'user.deleted': 'Worker removed',
+  'user.password_reset': 'Worker password reset',
+  'user.password_changed': 'Password changed',
 };
 
 const ACTION_BADGE = {
@@ -40,6 +44,10 @@ const ACTION_BADGE = {
   'supplier.updated': 'bg-teal-100 text-teal-700',
   'supplier.deleted': 'bg-red-100 text-red-700',
   'supplier.purchase': 'bg-teal-100 text-teal-700',
+  'user.created': 'bg-indigo-100 text-indigo-700',
+  'user.deleted': 'bg-red-100 text-red-700',
+  'user.password_reset': 'bg-indigo-100 text-indigo-700',
+  'user.password_changed': 'bg-indigo-100 text-indigo-700',
 };
 
 export default function AuditLog() {

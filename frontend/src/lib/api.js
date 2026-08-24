@@ -130,6 +130,18 @@ export const api = {
   // Audit Log (Stage 14, admin-only — backend also enforces this via requireAdmin)
   getAuditLog: (params = {}) => request(`/api/audit-log?${new URLSearchParams(params)}`),
 
+  // Users (Stage 6, admin-only except changeOwnPassword)
+  getUsers: () => request('/api/users'),
+  createUser: (payload) => request('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteUser: (username) => request(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
+  resetUserPassword: (username, password) =>
+    request(`/api/users/${encodeURIComponent(username)}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  changeOwnPassword: (currentPassword, newPassword) =>
+    request('/api/users/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+
   // Orders, admin edit & refund (Stage 7)
   getOrders: (params = {}) => request(`/api/orders?${new URLSearchParams(params)}`),
   getOrder: (orderID) => request(`/api/orders/${encodeURIComponent(orderID)}`),
