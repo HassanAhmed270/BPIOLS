@@ -189,6 +189,41 @@ Open / known limitations
   returned new token works.
 - No self-service password-change UI — see the scope decision above.
 
+Stage 7 — Offline Sync: Walk-in Customer Support — DONE
+
+`lib/offlineSync.js`'s `syncOfflineSale()` now mirrors `routes/billing.js`'s
+`isWalkIn` skip: when `offlineSale.customerName === WALKIN_CUSTOMER`, the
+`Customer` lookup/409 and the post-commit customer order-history push are
+both skipped, same as the live walk-in path. `WALKIN_CUSTOMER` is defined
+as its own local const in this file rather than imported from
+`routes/billing.js` (not exported there, and importing it would mean
+touching that file's exports — out of this stage's single-file scope);
+flagging the duplicated sentinel value as a spot to keep in sync if it
+ever changes. No credit-auto-apply logic was added here — Stage 5's
+customer-credit auto-apply exists only in the live checkout path
+(`routes/billing.js`), and adding it to offline sync wasn't in this
+stage's scope or issue description, so offline sales still don't draw
+down customer credit; flagging as a possible future gap, not fixed here.
+
+Verified: `node --check` clean; 66/66 tests passing (no new test file —
+`syncOfflineSale` is transactional commit logic like `routes/orders.js`,
+following Stage 6's precedent of boot-test-only for this class of code,
+not pure-math like Stage 1's scope); boot test with
+`ENABLE_OFFLINE_SYNC=true` confirmed `POST /api/sync/commit` mounts and
+returns 401 with no token (module loads without throwing); `git diff
+--stat` confirms exactly the one intended file changed.
+
+Open: no live MongoDB in this sandbox (same gap as every prior stage) —
+the actual walk-in sync path (queue → `POST /api/sync/commit` → real
+`Order` with no conflict-queue entry) was not exercised end-to-end.
+Manual pass recommended: go offline, complete a walk-in sale, reconnect,
+confirm it produces a real `Order` (not a conflict-queue entry) and no
+`Customer` document is touched; then repeat with a normal named customer
+and confirm that path still requires and finds its `Customer` record as
+before.
+
+---
+
 Compaction note (this pass)
 
 Stages 1-4 were condensed from their original multi-page entries (full

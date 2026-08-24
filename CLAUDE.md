@@ -174,6 +174,15 @@ Important invariants:
   (admin-only, `AdminRoute`) is the only UI surface — there is currently no
   self-service "change my own password" UI, only the working endpoint; see
   `production-progress.md` Stage 6 for the scope reasoning.
+- Offline sync walk-in support (Stage 7): `lib/offlineSync.js`'s
+  `syncOfflineSale()` now mirrors `routes/billing.js`'s `isWalkIn` skip —
+  a queued offline sale for `WALKIN_CUSTOMER` ("Walk-in / Unknown") skips
+  the `Customer` lookup/409 and the customer order-history push, same as
+  the live checkout path. `WALKIN_CUSTOMER` is duplicated as a local
+  const in `lib/offlineSync.js` rather than imported (not exported from
+  `routes/billing.js`) — keep both in sync if the sentinel value ever
+  changes. Offline sync still does not apply Stage 5 customer credit;
+  that auto-apply only exists in the live checkout path.
 
 ## Request flow
 
