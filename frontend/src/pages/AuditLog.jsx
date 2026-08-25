@@ -5,6 +5,37 @@ import SortableHeader from '../components/SortableHeader';
 import Pagination from '../components/Pagination';
 import { api } from '../lib/api';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { flattenObject, lastSegment } from '../lib/flattenObject';
+import { formatMoney } from '../lib/money';
+
+const MONEY_KEY_RE = /price|amount|balance|paid|due|cost/i;
+const DATE_KEY_RE = /date|At$/i;
+
+function formatFieldValue(key, value) {
+  if (value === undefined) return '';
+  if (MONEY_KEY_RE.test(key) && typeof value === 'number') return formatMoney(value);
+  if (DATE_KEY_RE.test(key) && value && !isNaN(Date.parse(value))) {
+    return new Date(value).toLocaleString();
+  }
+  if (value === null) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function buildDiffRows(before, after) {
+  const beforeRows = flattenObject(before);
+  const afterRows = flattenObject(after);
+  const map = new Map();
+  for (const { path, value } of beforeRows) {
+    map.set(path, { path, before: value, after: undefined });
+  }
+  for (const { path, value } of afterRows) {
+    const existing = map.get(path);
+    if (existing) existing.after = value;
+    else map.set(path, { path, before: undefined, after: value });
+  }
+  return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
 
 const PAGE_SIZE = 20;
 
@@ -172,20 +203,28 @@ export default function AuditLog() {
                       {expandedId === entry._id && (
                         <tr className="border-t bg-gray-50">
                           <td colSpan={5} className="p-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <p className="font-medium text-gray-600 mb-1">Before</p>
-                                <pre className="bg-white border rounded p-2 text-xs overflow-x-auto max-h-64">
-                                  {entry.before ? JSON.stringify(entry.before, null, 2) : '(none — this was a create)'}
-                                </pre>
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-600 mb-1">After</p>
-                                <pre className="bg-white border rounded p-2 text-xs overflow-x-auto max-h-64">
-                                  {entry.after ? JSON.stringify(entry.after, null, 2) : '(none)'}
-                                </pre>
-                              </div>
-                            </div>
+                            <table className="w-full text-xs bg-white border rounded overflow-hidden">
+                              <thead className="bg-gray-100 text-gray-600 uppercase">
+                                <tr>
+                                  <th className="py-2 px-2 text-left">Field</th>
+                                  <th className="py-2 px-2 text-left">Before</th>
+                                  <th className="py-2 px-2 text-left">After</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {buildDiffRows(entry.before, entry.after).map((row) => {
+                                  const key = lastSegment(row.path);
+                                  const changed = formatFieldValue(key, row.before) !== formatFieldValue(key, row.after);
+                                  return (
+                                    <tr key={row.path} className={`border-t ${changed ? 'bg-yellow-50 font-medium' : ''}`}>
+                                      <td className="py-1 px-2 whitespace-nowrap">{row.path}</td>
+                                      <td className="py-1 px-2">{entry.before ? formatFieldValue(key, row.before) : ''}</td>
+                                      <td className="py-1 px-2">{formatFieldValue(key, row.after)}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </td>
                         </tr>
                       )}

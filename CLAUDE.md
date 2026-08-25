@@ -176,7 +176,9 @@ current state of any item flagged as changing under a specific stage):
   Update Product has no stock field at all.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. `final.md` Stage 4 adds a
-  PDF variant alongside each of the 5 existing CSV export types.
+  PDF variant alongside each of the 5 existing CSV export types. Stage 3
+  replaced `AuditLog.jsx`'s raw JSON dump with a flattened table via new
+  `lib/flattenObject.js`.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on its existing
   `unique: true` index.
@@ -191,18 +193,17 @@ current state of any item flagged as changing under a specific stage):
   `Order.creditApplied`, `Customer.orders[].creditApplied`/
   `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
   `Refund.settlement`/`creditGenerated` carry this at each level.
-  `recomputeOrderTotals` (`routes/orders.js`) returns the settlement
+  `recomputeOrderTotals` returns the settlement
   amount freed up rather than letting it vanish behind `balanceDue`'s
   clamp-to-zero. `final.md` Stage 9 adds a second, distinct credit path
   (Deduct Stock, reason "Returned to Supplier", adjusts *supplier*
-  credit) — keep the two mechanisms separate.
+  credit) — keep the two separate.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
   (`/api/users/me/password`, any role); every password write refreshes
   `passwordChangedAt`. Deleting your own account or the last admin is
   blocked. `Users.jsx` at `/workers` (admin-only, `AdminRoute`) is the
-  only UI surface. This gating was reviewed at the phase start and
-  confirmed sufficient — no `final.md` stage exists for it.
+  only UI surface; this gating was reviewed and confirmed sufficient.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER`
   ("Walk-in / Unknown") — duplicated as a local const (not exported from

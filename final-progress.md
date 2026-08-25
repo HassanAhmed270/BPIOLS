@@ -95,3 +95,55 @@ rather than duplicating the pattern).
   gap introduced by this stage.
 - Stage 1's "Manual visual check recommended" note stands — not
   performable in this sandbox (no live browser).
+
+**2026-08-25 — Stage 3 complete.**
+
+**Stage 3 — Audit log: flattened readable table.** New
+`frontend/src/lib/flattenObject.js` exports `flattenObject(obj, prefix)`
+(recursively flattens nested objects/arrays into `{ path, value }` pairs
+using dot/bracket paths, e.g. `items[0].productName`; empty objects/arrays
+and primitives resolve to a single leaf row so shape is never silently
+dropped) and `lastSegment(path)` (extracts the trailing key name for
+per-field formatting lookups). `AuditLog.jsx`'s expanded-row detail no
+longer renders `JSON.stringify(entry.before/after, null, 2)` inside
+`<pre>` blocks; it now builds a merged Field/Before/After row set
+(`buildDiffRows`) over the union of both snapshots' flattened paths, one
+row per path, sorted alphabetically. Rows where the formatted Before and
+After differ get a yellow-tint/bold highlight; for a `create` entry
+(`entry.before === null`) every row's Before cell renders blank rather
+than the flattened literal `null`. Field values whose trailing key
+matches `price`/`amount`/`balance`/`paid`/`due`/`cost` (case-insensitive)
+are run through the existing `formatMoney()`; keys matching `date` or
+ending in `At` are rendered via `Date.parse` + `toLocaleString()` when
+parseable. Everything else stringifies as-is; a leaf value that is
+itself a nested object/array (e.g. inside a deeply mixed structure) falls
+back to a plain `JSON.stringify` of just that one cell, not the whole
+entry — this is not a raw-dump regression, no entry, top-level or nested,
+is rendered as one undifferentiated JSON blob anymore.
+
+**Verified:**
+- Frontend: `npm install` + `npm run build` (Vite) — clean build, no
+  errors.
+- `npm test` — all 66 existing backend tests still pass unchanged (this
+  stage made no backend changes; `before`/`after` snapshots already
+  contained everything needed, per the stage's own scope note).
+- Manual check against real audit entries of different action types
+  (create/update/delete, nested array fields like order line items) was
+  not performed — no live Mongo/browser in this sandbox, same constraint
+  the stage's own "Testing/validation" section anticipated. Reviewed by
+  reading the component logic and confirming the flatten/format/diff
+  functions against representative hand-constructed objects (nested
+  objects, arrays, `null`/empty cases) instead.
+- Confirmed via `grep` that no other frontend file renders a full-entry
+  `JSON.stringify` dump; the one remaining `JSON.stringify` call in
+  `AuditLog.jsx` is the single-cell fallback for a nested leaf value.
+
+**Known/open:**
+- No live-data or live-browser verification was possible in this
+  sandbox — same standing constraint as Stages 1–2.
+- `formatFieldValue`'s money/date detection is key-name based (matches
+  the stage's own spec) rather than schema-aware; a field that happens to
+  contain one of those substrings but isn't actually money/a date (none
+  currently exist in the audited models, as far as this review found)
+  would be mis-formatted. Flagging for awareness only, not a known actual
+  case.
