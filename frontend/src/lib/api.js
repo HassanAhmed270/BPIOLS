@@ -92,10 +92,13 @@ export const api = {
   // Exports (Stage 10) — these return CSV, not JSON, so they bypass the
   // shared `request()` helper (which assumes JSON/text-parsed bodies) and
   // are triggered as a real browser download instead.
-  downloadExport: async (type, range) => {
-    const params = range ? `?range=${encodeURIComponent(range)}` : '';
+  downloadExport: async (type, range, format = 'csv') => {
+    const params = new URLSearchParams();
+    if (range) params.set('range', range);
+    if (format === 'pdf') params.set('format', 'pdf');
+    const query = params.toString() ? `?${params.toString()}` : '';
     const token = tokenStore.get();
-    const res = await fetch(`${BASE}/api/export/${type}${params}`, {
+    const res = await fetch(`${BASE}/api/export/${type}${query}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (res.status === 401) {
@@ -110,7 +113,7 @@ export const api = {
     const blob = await res.blob();
     const disposition = res.headers.get('content-disposition') || '';
     const match = disposition.match(/filename="([^"]+)"/);
-    const filename = match ? match[1] : `${type}.csv`;
+    const filename = match ? match[1] : `${type}.${format === 'pdf' ? 'pdf' : 'csv'}`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

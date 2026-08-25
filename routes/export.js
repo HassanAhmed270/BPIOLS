@@ -13,6 +13,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { toCSV } = require('../lib/csv');
+const { sendTablePDF } = require('../lib/pdf');
 const {
   getDashboardSummary,
   getSalesRows,
@@ -35,6 +36,21 @@ function sendCSV(res, filenameBase, rows, columns) {
   res.send(csv);
 }
 
+function isPDF(query) {
+  return query.format === 'pdf';
+}
+
+// Shared by every export route below: picks CSV or PDF off ?format=pdf
+// (default CSV, unchanged from before this stage) so routes/export.js
+// keeps one send call per route instead of branching inline everywhere.
+function sendReport(req, res, filenameBase, rows, columns, title, subtitle) {
+  if (isPDF(req.query)) {
+    sendTablePDF(res, filenameBase, { title, subtitle, columns, rows });
+  } else {
+    sendCSV(res, filenameBase, rows, columns);
+  }
+}
+
 // Exports read the same money/customer/supplier data the dashboard and
 // orders/suppliers screens already expose to any authenticated user, just
 // reshaped for download — requireAuth (not requireAdmin) matches that
@@ -47,7 +63,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const range = parseRange(req.query);
     const rows = await getSalesRows(range);
-    sendCSV(res, `sales-${range}`, rows, [
+    sendReport(req, res, `sales-${range}`, rows, [
       { key: 'orderID', label: 'Order ID' },
       { key: 'orderDate', label: 'Order Date' },
       { key: 'customerName', label: 'Customer' },
@@ -57,7 +73,7 @@ router.get(
       { key: 'balanceDue', label: 'Balance Due' },
       { key: 'paymentStatus', label: 'Payment Status' },
       { key: 'status', label: 'Order Status' },
-    ]);
+    ], 'Sales Report', `Range: ${range}`);
   })
 );
 
@@ -68,7 +84,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const range = parseRange(req.query);
     const rows = await getRefundRows(range);
-    sendCSV(res, `refunds-${range}`, rows, [
+    sendReport(req, res, `refunds-${range}`, rows, [
       { key: 'orderID', label: 'Order ID' },
       { key: 'refundDate', label: 'Refund Date' },
       { key: 'customerName', label: 'Customer' },
@@ -76,7 +92,7 @@ router.get(
       { key: 'itemCount', label: 'Items Refunded' },
       { key: 'reason', label: 'Reason' },
       { key: 'processedBy', label: 'Processed By' },
-    ]);
+    ], 'Refunds Report', `Range: ${range}`);
   })
 );
 
@@ -87,7 +103,7 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const rows = await getCustomerCreditRows();
-    sendCSV(res, 'customer-credit', rows, [
+    sendReport(req, res, 'customer-credit', rows, [
       { key: 'customerName', label: 'Customer' },
       { key: 'mobileNo', label: 'Mobile No' },
       { key: 'orderNo', label: 'Order No' },
@@ -95,7 +111,7 @@ router.get(
       { key: 'totalAmount', label: 'Total Amount' },
       { key: 'amountPaid', label: 'Amount Paid' },
       { key: 'balanceDue', label: 'Balance Due' },
-    ]);
+    ], 'Customer Credit Report', 'Snapshot, as of now');
   })
 );
 
@@ -105,7 +121,7 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const rows = await getSupplierPayableRows();
-    sendCSV(res, 'supplier-payables', rows, [
+    sendReport(req, res, 'supplier-payables', rows, [
       { key: 'supplierName', label: 'Supplier' },
       { key: 'phone', label: 'Phone' },
       { key: 'purchaseID', label: 'Purchase ID' },
@@ -113,7 +129,7 @@ router.get(
       { key: 'totalAmount', label: 'Total Amount' },
       { key: 'amountPaid', label: 'Amount Paid' },
       { key: 'balanceDue', label: 'Balance Due' },
-    ]);
+    ], 'Supplier Payables Report', 'Snapshot, as of now');
   })
 );
 
@@ -126,7 +142,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const range = parseRange(req.query);
     const summary = await getDashboardSummary(range);
-    sendCSV(res, `summary-${range}`, [summary], [
+    sendReport(req, res, `summary-${range}`, [summary], [
       { key: 'range', label: 'Range' },
       { key: 'overallSales', label: 'Total Sales' },
       { key: 'totalProfit', label: 'Total Profit' },
@@ -138,7 +154,7 @@ router.get(
       { key: 'exchangedOrders', label: 'Exchanged Orders' },
       { key: 'totalCustomerCreditOutstanding', label: 'Customer Credit Outstanding' },
       { key: 'totalSupplierPayable', label: 'Supplier Payable' },
-    ]);
+    ], 'Summary Report', `Range: ${range}`);
   })
 );
 

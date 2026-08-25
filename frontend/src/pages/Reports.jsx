@@ -26,11 +26,11 @@ export default function Reports() {
   const [error, setError] = useState('');
   const offlineSyncEnabled = isOfflineSyncEnabled();
 
-  const handleExport = async (type) => {
+  const handleExport = async (type, format) => {
     setError('');
-    setPending(type);
+    setPending(`${type}-${format}`);
     try {
-      await api.downloadExport(type, EXPORTS.find((e) => e.type === type).ranged ? range : undefined);
+      await api.downloadExport(type, EXPORTS.find((e) => e.type === type).ranged ? range : undefined, format);
     } catch (err) {
       setError(err.message || 'Export failed.');
     } finally {
@@ -47,7 +47,7 @@ export default function Reports() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-2xl sm:text-3xl font-semibold text-brand">Export data</h2>
-              <p className="text-gray-600">Download CSV reports for sales, refunds, credit, and payables.</p>
+              <p className="text-gray-600">Download CSV or PDF reports for sales, refunds, credit, and payables.</p>
             </div>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
               {['week', 'month', 'year'].map((r) => (
@@ -77,13 +77,22 @@ export default function Reports() {
                   )}
                   {!e.ranged && <p className="text-xs text-gray-400 mt-2">Snapshot, as of now</p>}
                 </div>
-                <button
-                  onClick={() => handleExport(e.type)}
-                  disabled={pending === e.type}
-                  className="mt-4 self-start px-4 py-2 bg-brand text-white rounded-md text-sm hover:bg-brand-dark disabled:opacity-60"
-                >
-                  {pending === e.type ? 'Downloading…' : 'Download CSV'}
-                </button>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => handleExport(e.type, 'csv')}
+                    disabled={pending === `${e.type}-csv`}
+                    className="self-start px-4 py-2 bg-brand text-white rounded-md text-sm hover:bg-brand-dark disabled:opacity-60"
+                  >
+                    {pending === `${e.type}-csv` ? 'Downloading…' : 'Download CSV'}
+                  </button>
+                  <button
+                    onClick={() => handleExport(e.type, 'pdf')}
+                    disabled={pending === `${e.type}-pdf`}
+                    className="self-start px-4 py-2 border border-brand text-brand rounded-md text-sm hover:bg-brand hover:text-white disabled:opacity-60"
+                  >
+                    {pending === `${e.type}-pdf` ? 'Downloading…' : 'Download PDF'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

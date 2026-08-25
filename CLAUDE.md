@@ -15,9 +15,9 @@ Hassan identified after the production-hardening phase closed.
 - `progress.md` — original feature-build's historical log; also not this
   phase's numbering.
 
-Final-fixes stages start at **Stage 1** and follow `final.md` only —
-three independent stage-numbering sequences exist in this repo's history
-(this phase, `production.md`, and the original build).
+Final-fixes stages start at **Stage 1** and follow `final.md` only (three
+independent stage-numbering sequences exist in this repo: this phase,
+`production.md`, and the original build).
 
 ## Start every task by syncing
 
@@ -81,17 +81,15 @@ doesn't otherwise need to touch.
 
 - Backend change: boot-test before calling it done — install deps, start
   the server with a real `.env`, hit relevant routes with `curl`, all in
-  one shell/tool call. No live MongoDB replica set exists in the sandbox
-  — DB-writing routes fail past the auth/validation layer; boot tests
-  confirm the route mounts/loads and pre-DB validation/auth logic behaves
-  correctly, not full end-to-end behavior against real data.
+  one shell/tool call. No live MongoDB replica set exists in the sandbox,
+  so boot tests confirm the route mounts and pre-DB validation/auth logic
+  behaves correctly, not full end-to-end behavior against real data.
 - Frontend change: `npm run build` (Vite) before calling it done.
 - `npm test` before calling any stage done — a stage that breaks an
   existing test is not complete.
-- Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) after
-  verifying, before packaging deliverables.
-- No push credentials exist for this repo. Never claim to have pushed or
-  imply a change is live on GitHub — it isn't until Hassan merges it.
+- Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) before
+  packaging deliverables.
+- No push credentials exist for this repo. Never claim to have pushed or imply a change is live on GitHub — it isn't until Hassan merges it.
 
 ## End-of-stage requirements
 
@@ -145,17 +143,14 @@ Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
 
 - Product/order business IDs use `#0000`-style identifiers; do not
-  confuse them with Mongo `_id`. **Stage 2 (done):** Add Product no
-  longer accepts a typed `productId` — `POST /api/product`'s create path
-  (i.e. no `productId` in the request, or one that matches no existing
-  product) always generates the next sequential `#000N` server-side via
-  `nextProductId()` (`routes/products.js`), backed by `models/Counter.js`
-  so a deleted product's ID is never reissued. The Update path is
-  unchanged: it still looks up by the submitted `productId` and merges
-  into that existing document. The frontend Add Product form
-  (`Products.jsx`) no longer has an ID input at all; Update Product still
-  shows the ID as a disabled, pre-filled field. `POST /api/product`
-  returns the generated `productId` in its JSON response for Add mode.
+  confuse them with Mongo `_id`. Add Product no longer accepts a typed
+  `productId` — `POST /api/product`'s create path always generates the
+  next sequential `#000N` server-side via `nextProductId()`
+  (`routes/products.js`), backed by `models/Counter.js` (deleted IDs
+  never reissued). Update path unchanged (looks up by submitted
+  `productId`). `Products.jsx` has no ID input on Add; Update still
+  shows it disabled/pre-filled. Create response includes the generated
+  `productId`.
 - Product prices are history arrays; read them through `lib/pricing.js`.
 - Stock availability accounts for `reserved`.
 - Checkout uses persisted `PendingBill` data and server-side price/
@@ -175,10 +170,15 @@ current state of any item flagged as changing under a specific stage):
   the same for restocking via the new Add Stock action, after which
   Update Product has no stock field at all.
 - Audit records are written through `logAudit()`. CSV export and offline
-  sync are optional feature-flagged modules. `final.md` Stage 4 adds a
-  PDF variant alongside each of the 5 existing CSV export types. Stage 3
-  replaced `AuditLog.jsx`'s raw JSON dump with a flattened table via new
-  `lib/flattenObject.js`.
+  sync are optional feature-flagged modules. Stage 3 replaced
+  `AuditLog.jsx`'s raw JSON dump with a flattened table via new
+  `lib/flattenObject.js`. Stage 4 added `?format=pdf` to all 5
+  `routes/export.js` routes (default stays CSV) via a shared
+  `sendReport()` helper → new `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`
+  dependency), reusing each route's existing `{ key, label }` column
+  list. `Reports.jsx` has a CSV + PDF button per report card;
+  `api.js`'s `downloadExport(type, range, format)` gained the `format`
+  arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on its existing
   `unique: true` index.

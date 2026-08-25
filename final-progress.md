@@ -147,3 +147,73 @@ is rendered as one undifferentiated JSON blob anymore.
   currently exist in the audited models, as far as this review found)
   would be mis-formatted. Flagging for awareness only, not a known actual
   case.
+
+**2026-08-25 — Stage 4 complete.**
+
+**Stage 4 — PDF export alongside CSV.** Added `pdfkit` as a new backend
+dependency (`package.json`). New `lib/pdf.js` exports `sendTablePDF(res,
+filenameBase, { title, subtitle, columns, rows })` — streams a landscape
+A4 PDF with a title/subtitle header and a simple table (dark header row,
+one row per record, page breaks handled, "No data for this range." shown
+when `rows` is empty) using the same `{ key, label }` column shape
+`lib/csv.js`'s `toCSV()` already uses, so each route's column list is
+shared between CSV and PDF, not duplicated. `routes/export.js`: kept all
+5 existing routes and their URLs unchanged; added a `format=pdf` query
+param (`?format=pdf`, default remains CSV) via a new shared
+`sendReport(req, res, filenameBase, rows, columns, title, subtitle)`
+helper that picks `sendTablePDF` or the existing `sendCSV` — this keeps
+the file to one send call per route rather than branching inline in each
+of the 5 handlers, per the stage's own "whichever keeps `routes/export.js`
+cleanest" note. `frontend/src/lib/api.js`'s `downloadExport(type, range,
+format)` now takes an optional third `format` arg (`'csv'` default),
+appends `&format=pdf` when requested, and falls back to `.pdf` for the
+downloaded filename if the server didn't send a `Content-Disposition`
+header. `frontend/src/pages/Reports.jsx`: each of the 5 report cards now
+shows two buttons side by side — "Download CSV" (unchanged style) and a
+new outlined "Download PDF" — both independently track their own pending
+state so clicking one doesn't disable the other.
+
+**Verified:**
+- Backend: `npm install` (added `pdfkit`), boot-tested with a real
+  `.env` in a single shell session — server starts cleanly, all 5
+  export routes return `401` unauthenticated for both the CSV path
+  (unchanged) and the new `?format=pdf` path, confirming the routes
+  mount and the format branch doesn't bypass `requireAuth`. No live
+  MongoDB replica set in the sandbox, so the authenticated PDF-with-real-
+  data path was not exercised end-to-end through the route itself.
+- `lib/pdf.js`'s PDF generation was verified directly (bypassing auth/DB,
+  since neither is available here): a standalone script called
+  `sendTablePDF` with representative rows through a throwaway local HTTP
+  server, confirmed `Content-Type: application/pdf`, a non-trivial byte
+  count, and that the output is a structurally valid PDF (`file` command:
+  "PDF document, version 1.3, 1 page(s)") — this exercises the same
+  function the routes call, just without auth/Mongo in the path. Also
+  confirmed the empty-`rows` branch ("No data for this range.") renders
+  without throwing, per the stage's own testing note about a
+  structurally valid empty-data PDF.
+- `npm test` — all 66 existing tests pass unchanged (this stage added no
+  backend logic the test suite covers; `lib/pdf.js` has no dedicated
+  test file, consistent with `lib/csv.js` also having none).
+- Frontend: `npm install` + `npm run build` (Vite) — clean build, no
+  errors.
+- Test/build artifacts (`node_modules` in both root and `frontend/`,
+  `frontend/dist`, `.env`, `/tmp` scratch files) removed after
+  verification, before packaging.
+
+**Known/open:**
+- Authenticated, real-data PDF output (actual sales/refund/credit rows,
+  multi-page pagination against a real dataset) was not verified
+  end-to-end — no live MongoDB replica set in this sandbox, same
+  standing constraint as every prior stage. The empty-data and
+  representative-hand-built-rows paths were verified directly against
+  `lib/pdf.js`, per above.
+- `lib/pdf.js`'s table layout is intentionally simple (fixed equal-width
+  columns, no per-column width tuning, no cell wrapping beyond
+  `ellipsis: true`) — adequate for the stage's "formatted table, not a
+  raw data dump" bar, but a report with very long text in a narrow
+  column (e.g. a long refund reason) will truncate with an ellipsis
+  rather than wrap. Not flagged as a defect against this stage's
+  completion criteria, noting for awareness.
+- No manual/live-browser check of the two-button Reports.jsx layout was
+  possible in this sandbox (no live browser), same constraint as prior
+  UI-facing stages.
