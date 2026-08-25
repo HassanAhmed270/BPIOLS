@@ -8,33 +8,129 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { flattenObject, lastSegment } from '../lib/flattenObject';
 import { formatMoney } from '../lib/money';
 
-const MONEY_KEY_RE = /price|amount|balance|paid|due|cost/i;
+const MONEY_KEY_RE = /price|amount|balance|paid|due|cost|credit/i;
 const DATE_KEY_RE = /date|At$/i;
+const HIDDEN_KEY_RE = /^(?:_id|__v|createdAt|updatedAt|deletedAt|batchId)$/i;
 
 function formatFieldValue(key, value) {
-  if (value === undefined) return '';
+  if (value === undefined || value === null || value === '') return '';
   if (MONEY_KEY_RE.test(key) && typeof value === 'number') return formatMoney(value);
-  if (DATE_KEY_RE.test(key) && value && !isNaN(Date.parse(value))) {
-    return new Date(value).toLocaleString();
-  }
-  if (value === null) return 'null';
-  if (typeof value === 'object') return JSON.stringify(value);
+  if (DATE_KEY_RE.test(key) && !isNaN(Date.parse(value))) return new Date(value).toLocaleString();
+  if (typeof value === 'object') return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return String(value);
 }
 
-function buildDiffRows(before, after) {
-  const beforeRows = flattenObject(before);
-  const afterRows = flattenObject(after);
-  const map = new Map();
-  for (const { path, value } of beforeRows) {
-    map.set(path, { path, before: value, after: undefined });
+function hiddenPath(path) {
+  return path.split('.').some(part =>
+    HIDDEN_KEY_RE.test(part.replace(/\[\d+\]/g, ''))
+  );
+}
+
+function labelFor(path) {
+  const key = lastSegment(path)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/\bId\b/gi, 'ID');
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function diffRows(before, after, action) {
+  const all = new Map();
+  for (const r of flattenObject(before || {})) all.set(r.path, { ...r, after: undefined });
+  for (const r of flattenObject(after || {})) {
+    const old = all.get(r.path);
+    all.set(r.path, old ? { ...old, after: r.value } : { path: r.path, before: undefined, after: r.value });
   }
-  for (const { path, value } of afterRows) {
-    const existing = map.get(path);
-    if (existing) existing.after = value;
-    else map.set(path, { path, before: undefined, after: value });
+
+  const edit = /\.(edited|updated)$/.test(action || '');
+  return [...all.values()]
+    .filter(r => !hiddenPath(r.path))
+    .filter(r => formatFieldValue(lastSegment(r.path), r.before) || formatFieldValue(lastSegment(r.path), r.after))
+    .filter(r => !edit || formatFieldValue(lastSegment(r.path), r.before) !== formatFieldValue(lastSegment(r.path), r.after))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function value(rows, key) {
+  const row = rows.find(r => lastSegment(r.path).toLowerCase() === key.toLowerCase());
+  if (!row) return '';
+  const before = formatFieldValue(key, row.before);
+  const after = formatFieldValue(key, row.after);
+  return before && after && before !== after ? `${before} → ${after}` : after || before;
+}
+
+function compactDetails(before, after, action) {
+  const rows = diffRows(before, after, action);
+  const used = new Set();
+  const sections = [];
+
+  // Combine payment-related fields into one readable line.
+  const payments = rows.filter(r =>
+    /^payments\[\d+\]/.test(r.path) ||
+    ['amountPaid', 'balanceDue', 'creditApplied', 'paymentMethod', 'paymentStatus'].includes(lastSegment(r.path))
+  );
+  if (payments.length) {
+    const parts = [];
+    const paid = value(payments, 'amountPaid');
+    const due = value(payments, 'balanceDue');
+    const credit = value(payments, 'creditApplied');
+    const method = value(payments, 'paymentMethod') || value(payments, 'method');
+    const status = value(payments, 'paymentStatus');
+    if (paid) parts.push(`Paid ${paid}`);
+    if (due) parts.push(`Due ${due}`);
+    if (credit) parts.push(`Credit ${credit}`);
+    if (method) parts.push(method);
+    if (status) parts.push(status);
+    if (parts.length) sections.push({ label: 'Payment', text: parts.join(' · ') });
+    payments.forEach(r => used.add(r.path));
   }
-  return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
+
+  // Collapse edit/exchange history into one business event.
+  const history = rows.filter(r => r.path.startsWith('editHistory['));
+  if (history.length) {
+    const parts = [];
+    const product = value(history, 'productID');
+    const oldQty = value(history, 'originalQty');
+    const newQty = value(history, 'newQty');
+    const credit = value(history, 'creditAmount');
+    const settlement = value(history, 'settlement');
+    const reason = value(history, 'reason');
+    if (product) parts.push(`Product ${product}`);
+    if (oldQty || newQty) parts.push(`Qty ${oldQty && newQty ? `${oldQty} → ${newQty}` : newQty || oldQty}`);
+    if (credit) parts.push(`Credit ${credit}`);
+    if (settlement) parts.push(settlement);
+    if (reason) parts.push(`Reason: ${reason}`);
+    if (parts.length) sections.push({ label: 'Adjustment', text: parts.join(' · ') });
+    history.forEach(r => used.add(r.path));
+  }
+
+  // Collapse each product's useful business fields into one line.
+  const productIndexes = [...new Set(rows.map(r => r.path.match(/^products\[(\d+)\]/)?.[1]).filter(Boolean))];
+  productIndexes.forEach(index => {
+    const productRows = rows.filter(r => r.path.startsWith(`products[${index}]`));
+    const parts = [];
+    const name = value(productRows, 'name') || value(productRows, 'productName') || value(productRows, 'productID');
+    const qty = value(productRows, 'quantity') || value(productRows, 'qty');
+    const price = value(productRows, 'sellingPrice') || value(productRows, 'salePrice') || value(productRows, 'price');
+    const amount = value(productRows, 'amount');
+    if (name) parts.push(name);
+    if (qty) parts.push(`Qty ${qty}`);
+    if (price) parts.push(`Price ${price}`);
+    if (amount) parts.push(`Amount ${amount}`);
+    if (parts.length) sections.push({ label: `Product ${Number(index) + 1}`, text: parts.join(' · ') });
+    productRows.forEach(r => used.add(r.path));
+  });
+
+  // Keep remaining meaningful fields, but combine them into one compact Details section.
+  const remaining = rows.filter(r => !used.has(r.path));
+  const details = remaining.map(r => {
+    const key = lastSegment(r.path);
+    const v = value(remaining, key);
+    return v ? `${labelFor(r.path)}: ${v}` : '';
+  }).filter(Boolean);
+
+  if (details.length) sections.push({ label: 'Details', text: details.join(' · ') });
+  return sections;
 }
 
 const PAGE_SIZE = 20;
@@ -203,28 +299,16 @@ export default function AuditLog() {
                       {expandedId === entry._id && (
                         <tr className="border-t bg-gray-50">
                           <td colSpan={5} className="p-4">
-                            <table className="w-full text-xs bg-white border rounded overflow-hidden">
-                              <thead className="bg-gray-100 text-gray-600 uppercase">
-                                <tr>
-                                  <th className="py-2 px-2 text-left">Field</th>
-                                  <th className="py-2 px-2 text-left">Before</th>
-                                  <th className="py-2 px-2 text-left">After</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {buildDiffRows(entry.before, entry.after).map((row) => {
-                                  const key = lastSegment(row.path);
-                                  const changed = formatFieldValue(key, row.before) !== formatFieldValue(key, row.after);
-                                  return (
-                                    <tr key={row.path} className={`border-t ${changed ? 'bg-yellow-50 font-medium' : ''}`}>
-                                      <td className="py-1 px-2 whitespace-nowrap">{row.path}</td>
-                                      <td className="py-1 px-2">{entry.before ? formatFieldValue(key, row.before) : ''}</td>
-                                      <td className="py-1 px-2">{formatFieldValue(key, row.after)}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                            <div className="bg-white border rounded overflow-hidden">
+                              {compactDetails(entry.before, entry.after, entry.action).map((section) => (
+                                <div key={section.label} className="px-3 py-2 border-b last:border-b-0">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                    {section.label}
+                                  </div>
+                                  <div className="text-sm text-gray-800 mt-0.5">{section.text}</div>
+                                </div>
+                              ))}
+                            </div>
                           </td>
                         </tr>
                       )}

@@ -16,7 +16,6 @@ const adminOnlyLinks = [
   { to: '/dashboard', label: 'Home' },
   { to: '/audit-log', label: 'Audit Log' },
   { to: '/workers', label: 'Workers' },
-  { to: '/webpage', label: 'Webpage', disabled: true },
 ];
 
 // Stage 16 — responsive nav. Below `md` the sidebar becomes an off-canvas

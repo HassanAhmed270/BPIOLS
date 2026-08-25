@@ -39,11 +39,9 @@ export default function Orders() {
   const [detail, setDetail] = useState(null); // { order, refunds } for the expanded row
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const [editForm, setEditForm] = useState({ productID: '', newQty: '', reason: '' });
+  const [editForm, setEditForm] = useState({ productID: '', removeQty: '', reason: '' });
   const [refundForm, setRefundForm] = useState({});
   const [refundReason, setRefundReason] = useState('');
-  const [refundSettlement, setRefundSettlement] = useState('cash');
-
   const loadOrders = async () => {
     setLoading(true);
     try {
@@ -86,7 +84,7 @@ export default function Orders() {
     setExpandedID(orderID);
     setDetail(null);
     setDetailLoading(true);
-    setEditForm({ productID: '', newQty: '', reason: '' });
+    setEditForm({ productID: '', removeQty: '', reason: '' });
     setRefundForm({});
     setRefundReason('');
     try {
@@ -111,13 +109,43 @@ export default function Orders() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editForm.productID) return toast.error('Select a line item to edit.');
-    const newQty = parseInt(editForm.newQty);
-    if (isNaN(newQty) || newQty < 0) return toast.error('Enter a valid new quantity.');
-    if (!editForm.reason.trim()) return toast.error('A reason is required.');
+    const removeQty = parseInt(editForm.removeQty);
+
+    if (isNaN(removeQty) || removeQty < 0) {
+      return toast.error('Enter a valid quantity to remove.');
+    }
+
+    if (removeQty === 0) {
+      return toast.error('Quantity to remove must be greater than 0.');
+    }
+
+    const product = detail.order.products.find(
+      (p) => p.productID === editForm.productID
+    );
+
+    if (!product) {
+      return toast.error('Selected item was not found.');
+    }
+
+    if (removeQty > product.quantity) {
+      return toast.error(`You can remove a maximum of ${product.quantity}.`);
+    }
+
+    const newQty = product.quantity - removeQty;
+
+    if (!editForm.reason.trim()) {
+      return toast.error('A reason is required.');
+    }
+
     try {
-      await api.editOrderItem(expandedID, { productID: editForm.productID, newQty, reason: editForm.reason.trim() });
+      await api.editOrderItem(expandedID, {
+        productID: editForm.productID,
+        newQty,
+        reason: editForm.reason.trim(),
+        settlement: 'credit',
+      });
       toast.success('Order updated.');
-      setEditForm({ productID: '', newQty: '', reason: '' });
+      setEditForm({ productID: '', removeQty: '', reason: '' });
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Edit failed: ' + err.message);
@@ -146,7 +174,7 @@ export default function Orders() {
       const data = await api.refundOrder(expandedID, {
         items,
         reason: refundReason.trim(),
-        settlement: refundSettlement,
+        settlement: 'cash',
       });
 
       console.log('REFUND RESPONSE:', data);
@@ -162,7 +190,6 @@ export default function Orders() {
       toast.success(message);
       setRefundForm({});
       setRefundReason('');
-      setRefundSettlement('cash');
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Refund failed: ' + err.message);
@@ -176,7 +203,17 @@ export default function Orders() {
       .map((p) => `<tr><td>${p.productID}</td><td>${p.quantity}</td><td>${formatMoney(p.amount)}</td><td>${p.discount}%</td></tr>`)
       .join('');
     const editRows = (order.editHistory || [])
-      .map((e) => `<tr><td>${e.productID}</td><td>${e.originalQty} \u2192 ${e.newQty}</td><td>${e.action}</td><td>${e.editedBy}</td><td>${new Date(e.editedAt).toLocaleString()}</td><td>${e.reason}</td></tr>`)
+      .map((e) => `
+    <tr>
+      <td>${e.productID}</td>
+      <td>${e.originalQty} → ${e.newQty}</td>
+      <td>${e.action}</td>
+      <td>${e.editedBy}</td>
+      <td>${new Date(e.editedAt).toLocaleString()}</td>
+      <td>${e.reason}</td>
+      <td>Store Credit: ${formatMoney(e.creditAmount || 0)}</td>
+    </tr>
+  `)
       .join('');
     const refundRows = (refunds || [])
       .map((r) => `<tr><td>${formatMoney(r.refundAmount)}</td><td>${r.processedBy}</td><td>${new Date(r.refundDate).toLocaleString()}</td><td>${r.reason || ''}</td></tr>`)
@@ -300,7 +337,7 @@ export default function Orders() {
 
                                   {detail.order.editHistory?.length > 0 && (
                                     <div>
-                                      <h3 className="font-medium text-brand-green mb-1">Edit History</h3>
+                                      <h3 className="font-medium text-brand-green mb-1">Edit History / Store Credit Adjustments</h3>
                                       <ul className="text-xs space-y-1">
                                         {detail.order.editHistory.map((e, i) => (
                                           <li key={i} className="border-b pb-1">
@@ -348,9 +385,12 @@ export default function Orders() {
                                           <input
                                             type="number"
                                             min="0"
-                                            placeholder="New quantity (0 = remove)"
-                                            value={editForm.newQty}
-                                            onChange={(e) => setEditForm({ ...editForm, newQty: e.target.value })}
+                                            max={editForm.productID
+                                              ? detail.order.products.find((p) => p.productID === editForm.productID)?.quantity
+                                              : undefined}
+                                            placeholder="Quantity to remove (0 = no reduction)"
+                                            value={editForm.removeQty}
+                                            onChange={(e) => setEditForm({ ...editForm, removeQty: e.target.value })}
                                             className="border rounded px-2 py-1 w-full text-sm"
                                           />
                                           <input
@@ -390,27 +430,6 @@ export default function Orders() {
                                             )}
                                           </label>
                                         ))}
-                                        <div className="flex gap-3 text-xs items-center">
-                                          <span>Settle as:</span>
-                                          <label className="flex items-center gap-1">
-                                            <input
-                                              type="radio"
-                                              name="refundSettlement"
-                                              checked={refundSettlement === 'cash'}
-                                              onChange={() => setRefundSettlement('cash')}
-                                            />
-                                            Cash back
-                                          </label>
-                                          <label className="flex items-center gap-1">
-                                            <input
-                                              type="radio"
-                                              name="refundSettlement"
-                                              checked={refundSettlement === 'credit'}
-                                              onChange={() => setRefundSettlement('credit')}
-                                            />
-                                            Store credit
-                                          </label>
-                                        </div>
                                         <input
                                           type="text"
                                           placeholder="Reason (required)"
