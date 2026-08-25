@@ -460,30 +460,204 @@ bottom of the bill preview whenever a customer (not walk-in) is selected.
 
 ---
 
+## Stage 12 — Offline: continuous draft persistence
+
+**Goal:** stop losing an in-progress cart on reload while offline — the
+actual bug behind "offline doesn't persist."
+
+**Issues addressed:** verified in code — cart state while being *built*
+offline lives only in React `useState` in `Billing.jsx`. It's written to
+IndexedDB only at the moment "Generate Bill" is submitted and a network
+error is caught (`enqueueSale()`). A reload before that point loses the
+in-progress cart entirely. This is not a flaw in IndexedDB itself — it
+already proves reliable for completed-but-unsynced sales via the
+existing `sales` object store; the gap is that nothing persists the
+*draft* before it becomes a finished sale.
+
+**Implementation tasks:**
+- Add a new IndexedDB object store, `drafts`, in
+  `frontend/src/lib/offlineQueue.js` (database `pos-offline-queue`,
+  alongside the existing `sales` store) — kept separate from `sales`
+  since a draft isn't a sale yet and shouldn't be touched by the
+  `pending → synced/conflict` sync machinery.
+- Write the current cart state into `drafts` on every meaningful change
+  in `Billing.jsx`: item add/remove, quantity/discount edit, customer
+  switch, amount-paid edit.
+- On app load, check `drafts` for an unfinished entry and restore it
+  directly into cart state if found.
+- Stay local until deliberately finalized: even if connectivity returns
+  mid-edit, keep editing against the local draft — no automatic handoff
+  to the live server-side `PendingBill` flow. Handoff only happens when
+  the cashier hits "Generate Bill", which already tries the live API
+  first and falls back to `enqueueSale()` on a real network error,
+  unchanged from today.
+- Clear the draft once the sale is queued into `sales` (or completes live
+  because connectivity came back by finalize time).
+- Deletion of *synced* entries stays exactly as today — manual only, via
+  the existing "Clear synced" button on `Reports.jsx`. Nothing auto-
+  deletes a synced entry; not touched by this stage.
+
+**Design decisions carried into this stage, not re-litigated:**
+- **72-hour retention** — read as a minimum-guarantee requirement ("must
+  survive at least 72h offline"), not a cutoff/lockout. Already satisfied
+  by IndexedDB, which has no built-in expiry. No implementation task
+  needed for this specifically.
+- **Storage technology stays IndexedDB** — Excel-as-datastore was
+  considered and rejected (browsers can't repeatedly write to a file on
+  disk without re-granting permission via the File System Access API,
+  Chromium-only, no real querying — strictly worse than IndexedDB here).
+  Redux Toolkit alone, without a persistence layer like `redux-persist`
+  (itself backed by `localStorage`/IndexedDB), would not survive a
+  reload at all. This stage's `drafts` store is the resolution of that
+  open question, not a new one.
+- **"Where is offline data saved on the device?"** — answered directly
+  from existing code, not a fix: IndexedDB, database
+  `pos-offline-queue`, object store `sales` (existing), keyed by
+  `idempotencyKey`, carrying local status (`pending | synced | conflict`),
+  `queuedAt`, `lastError`, `resultingOrderID`. Survives tab close,
+  browser crash, and device restart. This stage adds the `drafts` store
+  alongside it for the same database.
+
+**Affected areas:** `frontend/src/lib/offlineQueue.js`,
+`frontend/src/pages/Billing.jsx`.
+
+**Testing/validation:** manual/simulated — build a cart, simulate a
+reload (or actually reload in a dev build) before submitting, confirm
+the cart restores from `drafts`; confirm `drafts` clears once the sale is
+queued or completes; `npm run build`.
+
+**Completion criteria:** an in-progress cart survives a reload at any
+point while it's being built, not just after "Generate Bill" is pressed.
+
+---
+
+## Stage 13 — Offline: sync reliability & dashboard visibility
+
+**Depends on Stage 12** (shares the same `lib/offlineSync.js` surface;
+sequencing avoids two stages editing the sync flush logic at once).
+
+**Goal:** make the existing completed-sale sync pipeline more robust and
+give offline sales a visible marker once synced, without changing its
+core correctness logic.
+
+**Issues addressed:** the sync queue itself (idempotent commit,
+transactional write, FIFO replay order) is already correct and is
+**unchanged by this stage** — these are additive reliability/visibility
+improvements only.
+
+**Implementation tasks:**
+- **Reconnect delay.** On the browser's `online` event
+  (`frontend/src/lib/offlineSync.js`), wait ~1 minute before attempting
+  to flush the `sales` queue, instead of firing instantly as it does
+  today. Avoids syncing into a connection that's still flapping.
+- **Sync UX overlay.** Show a blocking overlay while an *automatic*
+  background flush is actively running — today a blocking state only
+  exists for the manual "Sync Now" button on `Reports.jsx`. Keep the
+  overlay up briefly after the flush call resolves rather than dismissing
+  it instantly.
+- **Post-sync verification.** After the server reports a queued sale as
+  `synced`, do one independent check that the resulting order actually
+  exists server-side before marking the local entry `synced`. If that
+  verification call itself fails (network/timeout — not a genuine "not
+  found"), retry up to 3 times with backoff; succeed and stop retrying as
+  soon as one attempt succeeds, rather than always running all 3
+  regardless of outcome.
+- **Dashboard visibility — historical marker.** At sync time
+  (`lib/offlineSync.js`), tag the resulting `Order` with a new
+  `offlineOrigin: true` field. This lets Dashboard/Reports later
+  surface "X sales this period were made offline" as a simple query
+  against that field — the actual Dashboard/Reports display of this
+  figure can be a small follow-up once the field exists, or included
+  here if it's a one-line addition once the field is in place (flag
+  during implementation if it turns out bigger than that).
+
+**Explicitly not in scope for this stage:**
+- Live, cross-device visibility of another terminal's still-unsynced
+  offline sales — that data only exists on the originating device until
+  it syncs; building real-time cross-device visibility is a materially
+  bigger feature than this item and was deliberately excluded.
+- Any change to the `sales` queue's own commit/transaction/replay logic.
+
+**Affected areas:** `frontend/src/lib/offlineSync.js`,
+`frontend/src/pages/Reports.jsx` (overlay), `models/Order.js`
+(`offlineOrigin` field), possibly `frontend/src/pages/Dashboard.jsx` if
+the follow-up display is folded in here.
+
+**Testing/validation:** boot test where feasible (no live Mongo, so the
+`offlineOrigin` field write itself can only be confirmed via code review
++ a schema check, not an end-to-end sync); `npm run build`.
+
+**Completion criteria:** reconnect flush waits ~1 minute; an automatic
+background flush shows a blocking overlay; a synced entry has passed one
+independent existence check (with bounded retry) before being marked
+`synced`; synced offline orders carry `offlineOrigin: true`.
+
+---
+
+## Stage 14 — Exchange process improvements
+
+**Goal:** allow adding a new item during an exchange (not just reducing
+an existing line), and let a walk-in order be reattached to a real
+customer inline during that flow.
+
+**Already working today — verified in code, no build needed:**
+- **Store credit only, never cash-back.** `routes/orders.js`'s
+  `POST /api/order/:orderID/edit` unconditionally converts any
+  overpayment an edit frees up into `Customer.creditBalance` via `$inc`.
+  There is no cash-back code path in this route.
+- **"Revised" receipt already printable.** `Orders.jsx`'s
+  "Print (Revised)" button already produces a full edit-history table
+  (item, qty change, action, editor, timestamp, reason) plus any refund
+  rows.
+
+**Implementation tasks:**
+- **Allow adding a new item during an exchange.** Today
+  `applyLineReduction` (`routes/orders.js`) only accepts a `newQty` less
+  than or equal to an existing line's current quantity — there's no path
+  to add a different product to an order via edit. Add that path: reason
+  required (same as existing edits), logged to `editHistory` with a new
+  `action: 'add'` alongside the existing reduction actions, stock
+  decremented through the same FIFO batch-consumption logic
+  (`consumeFIFO`) checkout already uses, so cost basis stays correct.
+- **Net balance — no new logic needed.** If the swap frees credit (item
+  removed/reduced is worth more than what's added), that credit goes to
+  the customer's store-credit balance via the existing mechanism above.
+  If the added item costs more, balance due simply increases and the
+  customer pays the difference like any order.
+- **Walk-in → customer conversion, inline in the exchange flow.** If the
+  order being exchanged belongs to the `WALKIN_CUSTOMER` sentinel, allow
+  creating a real `Customer` record on the spot (name + optional
+  details) from within the exchange UI and reattaching the order to that
+  new customer, so any credit generated by the exchange has an account to
+  land in. Today there is no upsert-style customer creation anywhere —
+  even normal checkout requires the `Customer` document to pre-exist
+  (`routes/billing.js`), and `routes/customers.js`'s `updateCustomer`
+  404s if the customer isn't already there — so this is new server-side
+  logic, not a UI-only change.
+
+**Affected areas:** `routes/orders.js` (`applyLineReduction` and the
+edit route), `frontend/src/pages/Orders.jsx`, `routes/customers.js`
+(new upsert-style create path for the walk-in-conversion case).
+
+**Testing/validation:** boot test — edit an order to add a new line item,
+confirm stock decrements via FIFO and `editHistory` records the `add`
+action; convert a walk-in order to a real customer mid-exchange, confirm
+the order's customer reference updates and any freed credit lands on the
+new customer record; `npm test`; `npm run build`.
+
+**Completion criteria:** an exchange can add a new item, not just reduce
+existing ones; a walk-in order can be converted to a real customer
+in-flow without leaving the exchange screen.
+
+---
+
 ## Deferred — not yet scoped
 
-These were raised in Hassan's original notes but not yet discussed in
-enough detail to plan. **Do not start these.** They'll be appended as
-their own numbered stage(s) once Hassan provides the flow — do not
-renumber the stages above when that happens, just append.
-
-- **Exchange process improvements** — "exchange process should be
-  better." No specifics gathered yet.
-- **Offline management overhaul** — tracking every entry while offline
-  (product quantity, customer records, exchanges, refunds) with an
-  "offline" marker, syncing to the database once back online, visible
-  across screens as reconciled once synced, persisting up to ~72 hours.
-  Storage approach undecided between Hassan's two suggestions (Excel-file
-  based vs. Redux Toolkit state) — and needs to be reconciled against the
-  existing `lib/offlineSync.js` / `OfflineSale` system already in the
-  codebase (built in the original feature-development phase) rather than
-  assumed to be a from-scratch build. Also covers: "where is offline data
-  saved on-device?" (this part may just be a question to answer from the
-  existing code once we get here, not necessarily a fix).
-- **Dashboard offline-billing visibility** — offline sales should show up
-  in the dashboard as identifiable "offline billing" entries, for
-  persistence/efficiency tracking. Likely resolved together with the item
-  above once that flow is settled.
+All items previously listed here (Exchange process improvements, Offline
+management overhaul, Dashboard offline-billing visibility) are now
+scoped as Stages 12–14 above. Nothing remains deferred as of this
+update. This section is kept as a placeholder — if new unscoped items
+come up, they belong here until triaged into a numbered stage.
 
 ## Already covered, no work needed
 
@@ -493,3 +667,49 @@ renumber the stages above when that happens, just append.
   client-side, and every `/api/users` route already requires
   `requireAuth + requireAdmin` server-side. Hassan confirmed this already
   satisfies the original ask. No stage needed.
+
+---
+
+## Coverage audit — all 16 original handwritten notebook items
+
+Cross-checked against the original two-page "Bugs & Issues" notebook
+transcription this whole plan was triaged from. All 16 original items
+are accounted for as of this update — 15 have a resolution below, one
+(#7) was deliberately merged into another item's resolution rather than
+kept as its own line.
+
+| # | Original note (paraphrased) | Resolution |
+|---|---|---|
+| 1 | Offline data tracked/entered while offline; should show in dashboard | Stages 12–13 |
+| 2 | Admin-only version | Already covered, no work needed |
+| 3 | Product ID bug fix | Stage 2 |
+| 4 | Product deletion management | Stage 9 |
+| 5 | Toast/message dialogs instead of `alert()`/`confirm()` | Stages 5–6 |
+| 6 | Add Product needs cost & selling price captured | Stage 7 |
+| 7 | Stock deduction with reason; supplier return handling; quantity+supplier record consistency | Merged into Stage 9 (Add Stock / Deduct Stock / hard-delete redesign) |
+| 8 | Billing should show last-purchased cost | Stage 8 |
+| 9 | Remove `$`, use PKR | Stage 1 |
+| 10 | Exchange process should be better | Stage 14 |
+| 11 | Supplier window looks good; Customer/Product/Billing don't | Stage 10 (Customers confirmed already fine, no change) |
+| 12 | Audit log should be human-readable, not raw JSON | Stage 3 |
+| 13 | PDF export alongside Excel/CSV | Stage 4 |
+| 14 | Where is offline data saved when offline? | Closed as a question, answered in Stage 12 — IndexedDB, `pos-offline-queue` database |
+| 15 | Offline management: Excel vs. Redux Toolkit, 72h persistence, sync-on-reconnect | Stages 12–13 (resolved as neither Excel nor Redux — stays on IndexedDB) |
+| 16 | Bill preview should show customer balance | Stage 11 |
+
+**Note on #7:** the original note bundled "reason for stock deduction,"
+"supplier return credit handling," and "quantity+supplier record
+consistency" into one paragraph, and #4 ("product deletion management")
+turned out to be the same underlying mechanism — remove some or all of a
+product's quantity for a reason, categorized as either a supplier return
+(adjust their credit) or a loss (write it off) — just triggered two
+different ways (a partial adjustment vs. deleting the whole product).
+These were deliberately consolidated into a single system in Stage 9
+during triage, rather than built as two mechanisms that could drift
+apart. This is why #7 doesn't have its own stage number — it isn't
+missing, it's inside Stage 9.
+
+**No open items remain from the original 16.** Any further items Hassan
+raises going forward (from untriaged parts of the same notebook, or new
+notes) get added to "Deferred — not yet scoped" above, then promoted to
+their own numbered stage the same way #1/#10/#14 were in this update.

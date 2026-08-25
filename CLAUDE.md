@@ -43,7 +43,7 @@ have changed since the previous task.
 - Work one `final.md` stage at a time and in `final.md` order — several
   stages have real dependencies on earlier ones (noted per stage in
   `final.md`; e.g. Stage 6 depends on Stage 5, Stage 9 depends on
-  Stage 7).
+  Stage 7, Stage 13 depends on Stage 12).
 - Touch only the stage's listed **Affected areas**.
 - If proper completion requires an out-of-scope change, stop and flag it.
 - An unrelated one-line, obviously-correct fix may be made inline, but
@@ -52,12 +52,12 @@ have changed since the previous task.
 - Prefer small, reversible commits. If a stage becomes too large (Stage 9
   is flagged in `final.md` itself as the likeliest candidate), flag it
   and split rather than push through oversized.
-- `final.md`'s "Deferred — not yet scoped" section lists items Hassan
-  raised but hasn't specified yet (Exchange process improvements, the
-  offline-management overhaul, dashboard offline-billing visibility). Do
-  not start these. They'll be appended as new stage(s) once Hassan
-  provides the flow — do not renumber the existing 11 stages when that
-  happens.
+- `final.md`'s "Deferred — not yet scoped" section is currently empty as
+  of the Stage 12–14 update — all items originally deferred (offline
+  management, dashboard offline visibility, exchange process) are now
+  scoped. Any newly-raised items go there first, then get promoted to a
+  numbered stage the same way, appended without renumbering existing
+  stages.
 
 ## Existing conventions
 
@@ -243,6 +243,15 @@ the description below):
   `final.md`'s "Deferred" section, once Hassan specifies that flow — do
   not assume a from-scratch rebuild is wanted without checking against
   what's already here first.
+- `final.md` Stage 12 adds a new `drafts` IndexedDB object store
+  (`frontend/src/lib/offlineQueue.js`, database `pos-offline-queue`,
+  alongside the existing `sales` store) so a cart survives a reload while
+  still being built offline, not just after it's been submitted and
+  queued. Stage 13 adds a `~1min` reconnect delay before auto-flushing
+  the `sales` queue, a blocking overlay during automatic flushes, a
+  bounded-retry post-sync existence check, and an `Order.offlineOrigin`
+  flag for later dashboard visibility — none of these change the
+  queue's own commit/transaction/replay logic.
 - `POST /product/undo` validates `productId` with `isValidProductId()`
   the same way `POST /api/product` does.
 - `loginLimiter` (`middleware/rateLimit.js`) is `max: 20` per 15-minute
