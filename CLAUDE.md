@@ -2,9 +2,9 @@
 
 The `production.md` phase (Stage 1–8) is complete and merged. This
 repository is now in a separate **final-fixes phase**, defined by
-`final.md`. The MERN billing/POS application remains feature-complete;
-current work is a further round of correctness, UX, and workflow fixes
-Hassan identified after the production-hardening phase closed.
+`final.md`. The app remains feature-complete; current work is a further
+round of correctness, UX, and workflow fixes Hassan identified after the
+production-hardening phase closed.
 
 ## Document authority
 
@@ -59,7 +59,10 @@ Check for an existing helper before creating new logic.
 - Pagination/sorting: `lib/query.js`.
 - Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
 - Audit logging: `lib/auditLog.js` → `logAudit()`.
-- FIFO costing: `lib/costing.js`, `models/StockBatch.js`.
+- FIFO costing: `lib/costing.js` (`createBatch`, `consumeFIFO`,
+  `restoreConsumption`, `generateUniquePurchaseId` — shared by
+  `routes/suppliers.js` and `routes/products.js`'s create path as of
+  Stage 7), `models/StockBatch.js`.
 - Sequential ID generation: `models/Counter.js` (added Stage 2) — a
   generic `{ _id, seq }` doc per counter key, incremented atomically via
   `findOneAndUpdate($inc)`. `routes/products.js`'s `nextProductId()` is
@@ -99,12 +102,11 @@ doesn't otherwise need to touch.
 
 ## End-of-stage requirements
 
-A stage is not complete until: `final-progress.md` is appended (changes
-made, verification performed, open/known limitations); `CLAUDE.md` is
-updated if architecture/routing/conventions changed; both docs are
-delivered; code changes are packaged (`git bundle create output.bundle
-main`, or a `.patch` file if necessary) with exact pull/merge commands;
-and verified vs. unverified items are stated plainly.
+A stage is not complete until: `final-progress.md` is appended; `CLAUDE.md`
+is updated if architecture/conventions changed; both docs are delivered;
+code is packaged (`git bundle create output.bundle main`, or a `.patch`
+file) with exact pull/merge commands; verified vs. unverified items are
+stated plainly.
 
 Do not begin the next stage until the current stage is complete.
 
@@ -142,8 +144,8 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2). `final.md` Stage 9 adds a new Loss-tracking model/collection
-(exact shape left to implementation).
+(Stage 2). Stage 9 adds a new Loss-tracking model/collection (exact shape
+left to implementation).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
@@ -168,18 +170,21 @@ current state of any item flagged as changing under a specific stage):
 - Restocking and checkout use transactions. FIFO stock costing is
   handled through `StockBatch` and `lib/costing.js`. Historically, plain
   Product-form stock additions were left un-batched (no cost input
-  existed on that form). `final.md` Stage 7 ends that exception for Add
-  Product (cost becomes required, a real batch is created); Stage 9 does
-  the same for restocking via the new Add Stock action, after which
-  Update Product has no stock field at all.
+  existed on that form). Stage 7 ends that for Add Product: Cost is now
+  required on the create path, and any positive initial stock creates a
+  matching `NoSupplier`-tagged `StockBatch` (zero stock still records a
+  `buyingPriceHistory` entry but no batch — `quantityPurchased` requires
+  `min: 1`). Update Product's `stock`/`already` path is unchanged.
+  `final.md` Stage 9 does the same for restocking via a new Add Stock
+  action, after which Update Product has no stock field at all.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table via
   `lib/flattenObject.js`. Stage 4 added `?format=pdf` to all 5
   `routes/export.js` routes (default CSV) via a shared `sendReport()`
   helper → `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`), reusing each
-  route's existing `{ key, label }` columns. `Reports.jsx` has a CSV +
-  PDF button per card; `api.js`'s `downloadExport()` gained a `format` arg.
+  route's `{ key, label }` columns. `Reports.jsx` has a CSV + PDF button
+  per card; `api.js`'s `downloadExport()` gained a `format` arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on `unique: true`.
 - Customer store credit: `Customer.creditBalance` mirrors
@@ -193,11 +198,10 @@ current state of any item flagged as changing under a specific stage):
   `Order.creditApplied`, `Customer.orders[].creditApplied`/
   `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
   `Refund.settlement`/`creditGenerated` carry this at each level.
-  `recomputeOrderTotals` returns the settlement
-  amount freed up rather than letting it vanish behind `balanceDue`'s
-  clamp-to-zero. `final.md` Stage 9 adds a second, distinct credit path
-  (Deduct Stock, reason "Returned to Supplier", adjusts *supplier*
-  credit) — keep the two separate.
+  `recomputeOrderTotals` returns the settlement amount freed up rather
+  than letting it vanish behind `balanceDue`'s clamp-to-zero. `final.md`
+  Stage 9 adds a second, distinct credit path (Deduct Stock, reason
+  "Returned to Supplier", adjusts *supplier* credit) — keep separate.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
   (`/api/users/me/password`, any role); every password write refreshes
@@ -205,17 +209,13 @@ current state of any item flagged as changing under a specific stage):
   blocked. `Users.jsx` at `/workers` (admin-only, `AdminRoute`) is the
   only UI surface; this gating was reviewed and confirmed sufficient.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
-  `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER`
-  ("Walk-in / Unknown") — duplicated as a local const (not exported from
-  `routes/billing.js`); keep both in sync if it ever changes. Offline
-  sync does not apply customer credit. Likely starting point for Stages
-  12–13: Stage 12 adds a `drafts` IndexedDB store
-  (`frontend/src/lib/offlineQueue.js`, db `pos-offline-queue`, alongside
-  the existing `sales` store) so a cart survives a reload mid-build.
-  Stage 13 adds a `~1min` reconnect delay before auto-flushing `sales`,
-  a blocking overlay during automatic flushes, a bounded-retry post-sync
-  existence check, and an `Order.offlineOrigin` flag — none change the
-  queue's own commit/transaction/replay logic.
+  `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` — duplicated
+  as a local const (not exported); keep both in sync if it ever changes.
+  Offline sync does not apply customer credit. `final.md` Stages 12–13
+  cover: a `drafts` IndexedDB store so a cart survives a reload mid-build,
+  a `~1min` reconnect delay before auto-flushing, a sync overlay, a
+  bounded-retry post-sync existence check, and an `Order.offlineOrigin`
+  flag — none change the queue's own commit/transaction/replay logic.
 - `POST /product/undo` validates `productId` with `isValidProductId()`
   the same way `POST /api/product`'s update path does (its create path,
   as of Stage 2, does not require a submitted `productId` at all).

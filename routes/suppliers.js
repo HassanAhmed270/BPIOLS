@@ -1,5 +1,6 @@
 // Stage 3 — split out of main.js verbatim, no logic changes.
 const express = require('express');
+const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
 const StockBatch = require('../models/StockBatch');
@@ -8,7 +9,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { AppError } = require('../lib/errors');
 const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice } = require('../lib/pricing');
-const { createBatch } = require('../lib/costing');
+const { createBatch, generateUniquePurchaseId } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { logAudit } = require('../lib/auditLog');
 const { isValidProductId } = require('../lib/validators');
@@ -120,15 +121,6 @@ router.delete('/supplier/:supplierName', requireAuth, requireAdmin, asyncHandler
   });
   res.status(200).json({ success: true, message: 'Supplier deleted successfully' });
 }));
-
-async function generateUniquePurchaseId() {
-  for (let i = 0; i < 20; i++) {
-    const candidate = 'PUR-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    const exists = await Supplier.exists({ 'purchases.purchaseID': candidate });
-    if (!exists) return candidate;
-  }
-  throw new AppError(500, 'Could not generate a unique purchase ID. Please try again.');
-}
 
 // Records a restock: creates the purchase record (with its own payment/
 // balance tracking, mirroring Order), increments stock, and appends to

@@ -31,162 +31,147 @@ for (15 as their own stage/closed-item, #7 folded into Stage 9's scope
 rather than kept separate). `final.md` now has 14 stages; the "Deferred"
 section is empty. No code changed this update — planning only.
 
-**2026-08-25 — Stages 1–4 complete (condensed).**
+**2026-08-25 — Stages 1–6 complete (condensed).**
 
 **Stage 1 — Currency: PKR.** `frontend/src/lib/money.js`'s `formatMoney()`
 outputs `Rs 1,234.50` (comma thousands-grouping, `-Rs X.XX` for
-negatives), replacing `$X.XX`. Confirmed via grep no other file has a
-hardcoded `$` outside `formatMoney()`.
+negatives). Confirmed via grep no other file has a hardcoded `$`.
 
-**Stage 2 — Product ID auto-generation.** `routes/products.js`'s
-`POST /api/product` create path ignores any submitted `productId` and
-generates the next sequential `#000N` server-side via `nextProductId()`,
-backed by new `models/Counter.js` (`{ _id, seq }`, atomic
-`findOneAndUpdate($inc)`, lazily seeded from current max `productID`) so
-deleted IDs are never reissued. Update path unchanged. Response includes
-the generated `productId`. `Products.jsx`: Product ID input removed from
-Add; Update still shows it disabled/pre-filled. `models/Counter.js` was
-flagged as a small, generic, reusable addition outside the stage's listed
-files (documented in `CLAUDE.md` for reuse by later stages).
-*Known:* Product ID still capped at 4 digits (`#0001`–`#9999`); no
-overflow guard added (out of scope).
+**Stage 2 — Product ID auto-generation.** `POST /api/product` create
+path ignores any submitted `productId`, generates sequential `#000N` via
+`nextProductId()`, backed by new `models/Counter.js` (atomic `$inc`,
+lazily seeded from max existing `productID`) so deleted IDs are never
+reissued. Update path unchanged. `Products.jsx`: ID input removed from
+Add; Update still shows it disabled/pre-filled.
+*Known:* ID capped at 4 digits (`#0001`–`#9999`), no overflow guard.
 
 **Stage 3 — Audit log: flattened readable table.** New
-`frontend/src/lib/flattenObject.js` (`flattenObject()`, `lastSegment()`)
-flattens nested `before`/`after` snapshots into `{ path, value }` rows.
-`AuditLog.jsx` replaced its raw `JSON.stringify` `<pre>` dump with a
-merged Field/Before/After table (`buildDiffRows`), differing rows
-highlighted, `create` entries show blank Before, money/date-looking keys
-formatted via `formatMoney()`/`toLocaleString()`. No backend changes.
+`frontend/src/lib/flattenObject.js` flattens nested `before`/`after`
+snapshots into `{ path, value }` rows; `AuditLog.jsx` replaced its raw
+`JSON.stringify` dump with a Field/Before/After table, differing rows
+highlighted, money/date keys formatted. No backend changes.
 
-**Stage 4 — PDF export alongside CSV.** Added `pdfkit` dependency. New
-`lib/pdf.js`'s `sendTablePDF()` streams a landscape A4 table PDF (title/
-subtitle, dark header row, page breaks, empty-data message), sharing each
-route's existing `{ key, label }` column list with `lib/csv.js`.
-`routes/export.js`: all 5 routes gained a `?format=pdf` query param
-(default CSV) via a shared `sendReport()` helper. `api.js`'s
-`downloadExport()` gained a `format` arg; `Reports.jsx` shows CSV + PDF
-buttons per report card.
+**Stage 4 — PDF export alongside CSV.** Added `pdfkit`. New `lib/pdf.js`'s
+`sendTablePDF()` streams a landscape A4 table PDF, sharing each route's
+`{ key, label }` columns with `lib/csv.js`. `routes/export.js`: all 5
+routes gained `?format=pdf` (default CSV) via a shared `sendReport()`
+helper. `Reports.jsx` shows CSV + PDF buttons per report card.
 
-**Verified (Stages 1–4, combined):** backend boot-tested with a real
-`.env` each stage (server starts cleanly, relevant routes mount, return
-correct pre-DB auth responses); `npm test` — all 66 tests pass unchanged
-throughout; `npm install` + `npm run build` (Vite) clean each stage;
-`lib/pdf.js` additionally verified directly via a standalone script
-(valid PDF output, correct `Content-Type`, empty-data path doesn't
-throw). Build/test artifacts removed before each stage's packaging.
+**Stage 5 — Toast & confirm-dialog infrastructure.** Added `sonner`. New
+`frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider` and
+`useConfirm()` — resolves a promise `true`/`false`, single-pending-dialog
+design, reuses the app's existing fixed-modal Tailwind pattern. `App.jsx`
+mounts `<Toaster>` and `<ConfirmProvider>` once at the root. No page call
+sites touched yet (that's Stage 6) — smoke-tested via a temporary wiring
+into `Dashboard.jsx`, then reverted byte-identical before completion.
 
-**Known/open (Stages 1–4, combined):** no live MongoDB replica set or
+**Stage 6 — Migrate all alert()/confirm() call sites.** All 64 call
+sites across `Billing.jsx` (23), `Orders.jsx` (11), `Suppliers.jsx` (9),
+`Customers.jsx` (8), `Users.jsx` (8), `Products.jsx` (6) now use
+`toast.success()`/`toast.error()` (by message intent) and
+`await confirm(...)`. Incidental fix: added `confirm` to a `useEffect`
+dependency array in `Billing.jsx` (safe — `useConfirm()`'s return is a
+stable `useCallback`). Confirmed via `grep` zero raw `alert()`/`confirm()`
+remain in `frontend/src/pages/`.
+
+**Verified (Stages 1–6, combined):** backend boot-tested with a real
+`.env` each stage; `npm test` — all 66 tests pass unchanged throughout;
+`npm install` + `npm run build` (Vite) clean each stage; `npm run lint`
+(`oxlint`) 0 errors throughout, only 2 pre-existing `react/only-export-
+components` warnings (`useAuth`, `useConfirm`), not regressions.
+`lib/pdf.js` additionally verified via a standalone script (valid PDF,
+correct `Content-Type`). Build/test artifacts removed before packaging
+each stage.
+
+**Known/open (Stages 1–6, combined):** no live MongoDB replica set or
 live browser in this sandbox for any stage — all live-data/visual checks
-noted per-stage as not performable, a standing constraint (not a defect)
-across the whole project. `lib/pdf.js`'s table layout is simple
-(fixed-width columns, ellipsis truncation, no wrapping) — adequate for
-the stage's bar but noted for awareness on long text fields.
+noted per-stage as not performable, a standing constraint across the
+whole project, not a defect. `lib/pdf.js`'s table layout is simple
+(fixed-width columns, ellipsis truncation, no wrapping). Toast/confirm
+UI's real rendered appearance and `useConfirm()`'s single-pending-dialog
+behavior against real overlapping-confirm scenarios were not visually/
+live verified — recommend a manual click-through once merged.
 
-**2026-08-25 — Stage 5 complete.**
+**2026-08-25 — Stage 7 complete.**
 
-**Stage 5 — Toast & confirm-dialog infrastructure.** Added `sonner` as a
-new frontend dependency (`frontend/package.json`). New
-`frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
-(context provider) and `useConfirm()` — a hook returning a `confirm(msg,
-options?)` function that resolves a promise `true`/`false` based on the
-user's click, backed by internal state rather than a queue (a second
-call while one is open would replace the pending dialog, which is fine
-since no call site opens two at once). Visually it reuses the app's
-existing fixed-modal Tailwind pattern (`fixed inset-0 bg-black/40 ...`
-overlay, white rounded card, `bg-brand` confirm button, gray cancel
-button) matching `Billing.jsx`'s Add Customer popup and `Users.jsx`'s
-reset-password dialog for consistency — no new visual language
-introduced. `App.jsx`: added `<Toaster richColors position="top-right"
-/>` (sonner) and wrapped the router in `<ConfirmProvider>`, both mounted
-once at the app root, inside `AuthProvider` and around `BrowserRouter`,
-so `useConfirm()` and `toast()` are available from any page without
-per-page setup. No page files were touched beyond this root wiring — no
-`alert()`/`confirm()` call sites were migrated, per the stage's explicit
-scope ("No call sites are touched in this stage" — that's Stage 6).
+**Stage 7 — Add Product: required cost, real StockBatch (self-buying
+only).** `routes/products.js`'s `POST /api/product` create path now
+requires `cost` (400 "Cost is required." if missing/non-numeric/negative
+— update path unaffected). On create: a `buyingPriceHistory` entry
+(`supplierID: null`) is always recorded, and if the submitted initial
+`stock` is positive, a matching `NoSupplier`-tagged `StockBatch` is
+created in the same transaction as the product save (via `createBatch()`
+from `lib/costing.js`, purchase ID from the newly-shared
+`generateUniquePurchaseId()`). Zero initial stock still records the cost
+basis but creates no batch — `StockBatch.quantityPurchased` requires
+`min: 1`, and there's nothing yet to batch. `frontend/src/pages/Products.jsx`:
+added a required Cost input to Add mode only (validated client-side
+before submit); Update mode is untouched, including its existing
+Supplier dropdown (that field sets `Product.supplierID`, a separate
+declarative "currently sourced from" field unrelated to purchase-batch
+creation — see Known/open below).
 
-**Verified:**
-- Frontend: `npm install` (added `sonner`) + `npm run build` (Vite) —
-  clean build, no errors.
-- Manual smoke test (per the stage's own testing note): temporarily
-  wired a button into `Dashboard.jsx` that fired a `toast.success()` and
-  then `await`ed `useConfirm()`'s `confirm()`, built successfully with
-  that wiring in place, then reverted `Dashboard.jsx` to its exact prior
-  state (diffed byte-identical against a pre-change backup) before
-  considering the stage done, exactly as the stage describes ("wire one
-  into a single button... then removed before calling this stage done").
-  This confirms both components import, render, and resolve correctly
-  when actually invoked, not just that they compile.
-- `npm test` (backend) — all 66 existing tests pass unchanged; this
-  stage made no backend changes.
-- Test/build artifacts (`node_modules` in both root and `frontend/`,
-  `frontend/dist`, `.env`) removed after verification, before packaging.
+**Shared-helper extraction (flagged, per `final.md`'s own "possibly...if
+extracting" note):** `generateUniquePurchaseId()` moved from
+`routes/suppliers.js` into `lib/costing.js` (now exported alongside
+`createBatch`/`consumeFIFO`/`restoreConsumption`) since both
+`routes/suppliers.js` and `routes/products.js` now need it; behavior is
+unchanged, still checks `Supplier.purchases` for collisions.
 
-**Known/open:**
-- No live-browser check of actual toast animation/positioning or the
-  confirm dialog's real rendered appearance was possible in this
-  sandbox (no live browser) — the smoke test above confirms the logic
-  path (render → user action → promise resolution) via a real build,
-  not pixel-level visual review. Recommend a quick manual glance once
-  merged, consistent with every prior UI-facing stage's same note.
-- `useConfirm()`'s single-pending-dialog design (a second `confirm()`
-  call while one is open replaces rather than queues it) is untested
-  against Stage 6's actual call sites, since none are migrated yet; if
-  Stage 6 finds a spot needing overlapping confirms, that's a Stage 6
-  concern to flag, not a Stage 5 gap as scoped.
-- `ConfirmProvider` and the `<Toaster>` are now permanently mounted at
-  the app root (this is intended — "wire up its provider once at the
-  app root" is Stage 5's own task, not a leftover from the smoke test).
+**Incidental one-line fix:** `routes/suppliers.js` called
+`mongoose.startSession()` in `POST /supplier/purchase` without ever
+`require('mongoose')`-ing it — a pre-existing bug (would throw
+`ReferenceError` on every real purchase against a live DB, self-purchase
+or supplier). Added the missing import while touching this file for the
+shared-helper extraction above. Stated here as incidental per the
+project's own rule for one-line, obviously-correct fixes — not part of
+Stage 7's own scope, but directly adjacent to code this stage had to
+touch anyway.
 
-**2026-08-25 — Stage 6 complete.**
-
-**Stage 6 — Migrate all alert()/confirm() call sites.** Re-verified
-call-site counts at the start of the stage (unchanged from `final.md`'s
-own count: `Billing.jsx` 23, `Orders.jsx` 11, `Suppliers.jsx` 9,
-`Customers.jsx` 8, `Users.jsx` 8, `Products.jsx` 6 — the extra one vs.
-`final.md`'s "5" is the plain success alert Stage 2 added, which the
-plan's own note anticipated). All 6 files now import `toast` from
-`sonner` and `useConfirm` from `ConfirmDialog.jsx`, and call
-`const confirm = useConfirm();` once at the top of the component. Every
-`alert()` became `toast.success()` (positive outcomes: item saved,
-order/customer/product created or updated, password reset, offline-save
-confirmation) or `toast.error()` (validation failures and caught-error
-messages) based on context. Every `confirm()` became
-`await confirm(...)` — all 6 call sites were already inside `async`
-functions, so no restructuring was needed beyond adding `await`. One
-incidental fix: Billing.jsx's top-level `useEffect` that calls
-`confirm()` (the "resume unfinished bill?" prompt) was missing `confirm`
-from its dependency array once `confirm` became a real hook value
-instead of the global `window.confirm` — added it (safe, since
-`useConfirm()`'s returned function is a stable `useCallback` reference,
-so this doesn't change when the effect fires).
+**Flagged interpretation (not a code change, for confirmation):**
+`final.md`'s Stage 7 text says "There is intentionally no supplier
+picker on this form." Read literally this could mean removing the
+existing Supplier dropdown from Add Product entirely — but that dropdown
+is shared with Update mode (same form, same field), Stage 7's own scope
+says "Edit is unaffected," and the dropdown sets an unrelated field
+(`Product.supplierID`, the product's declared current source) rather
+than anything to do with the new cost/StockBatch logic. Interpreted this
+as: no *new* picker is needed for the batch/cost path specifically (the
+batch is always `NoSupplier`-tagged regardless of what's selected there)
+— the pre-existing dropdown was left exactly as-is. Please confirm this
+reading is correct; if Hassan actually wants the Supplier field removed
+from Add Product specifically (but kept on Update), that's a small
+follow-up, not a re-do of this stage.
 
 **Verified:**
-- Confirmed via `grep -rn '\balert(\|\bconfirm('` across
-  `frontend/src/pages/` that the only matches remaining are the new
-  `await confirm(...)` call sites — zero raw `alert()`/`window.confirm()`
-  calls anywhere in `pages/`, and none were ever present outside
-  `pages/` either.
+- Backend boot-tested with a real `.env` (server starts cleanly, both
+  `routes/products.js` and `routes/suppliers.js` mount without error —
+  this also confirms the missing-`mongoose`-import fix doesn't break
+  anything). `POST /api/product` and `POST /supplier/purchase` both
+  correctly return 401 "Login required." with no token, confirming the
+  route chain is intact pre-DB.
+- `npm test` — all 66 existing tests pass unchanged; no new pure-math
+  logic was added that warranted its own test (the new logic is
+  transactional DB writes, same category as `consumeFIFO`/
+  `restoreConsumption`, which `tests/costing.test.js` already documents
+  as not exercised without a live Mongo session).
 - `npm install` + `npm run build` (Vite) — clean, no errors.
-- `npm run lint` (`oxlint`) — 0 errors both before and after; the only
-  warnings are two pre-existing-pattern `react/only-export-components`
-  notices (one on `useAuth` from Stage-0-era code, one now on the new
-  `useConfirm`, same shape, not a regression) — no lint errors introduced
-  by this stage.
-- `npm test` (backend) — all 66 tests pass unchanged; this stage made no
-  backend changes.
+- `npm run lint` (`oxlint`) — same 2 pre-existing warnings as every prior
+  stage (`useAuth`, `useConfirm` fast-refresh notices), 0 errors, no new
+  warnings introduced.
 - Test/build artifacts (`node_modules` in both root and `frontend/`,
   `frontend/dist`, `.env`) removed after verification, before packaging.
 
 **Known/open:**
-- No live-browser check of actual toast/confirm behavior on each of the
-  6 migrated pages was possible in this sandbox (no live browser) — same
-  standing constraint as every prior UI-facing stage. The build+lint
-  clean pass and the exhaustive `grep` sweep are the verification this
-  sandbox can offer; a quick manual click-through per page is recommended
-  once merged.
-- Success vs. error toast styling was chosen by reading each message's
-  intent (e.g. "X saved successfully" → success, a caught `err.message`
-  → error) rather than from any explicit spec in `final.md` beyond
-  "styled appropriately based on context" — flagging the judgment call,
-  not a defect.
+- No live MongoDB replica set in this sandbox — the actual cost-required
+  validation (400 path) and the transactional product-save +
+  `StockBatch`-creation logic could not be exercised end-to-end, only
+  confirmed via code review and the route-mounting/pre-DB-auth boot test
+  above. Same standing constraint as every prior stage.
+- The Supplier-dropdown interpretation above is a flagged, not fully
+  confirmed, reading of `final.md`'s wording — see that section.
+- `models/StockBatch.js`'s header comment updated to reflect Stage 7
+  superseding the old Stage-22 "Product-form stock is never batched"
+  note for the Add Product path specifically; Update Product still has
+  no cost input and still doesn't batch (unchanged, and explicitly
+  Stage 9's job to address).

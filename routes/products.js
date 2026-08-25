@@ -8,6 +8,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice, getLatestBuyingPrice } = require('../lib/pricing');
+const { createBatch, generateUniquePurchaseId } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { logAudit } = require('../lib/auditLog');
 const { isValidProductId } = require('../lib/validators');
@@ -134,7 +135,7 @@ router.get('/api/products/low-stock', requireAuth, requireAdmin, asyncHandler(as
 // specific actions like edits/refunds in a later stage.)
 
 router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { productId, productName, category, price, stock, supplierId, already, lowStockThreshold } = req.body;
+  const { productId, productName, category, price, stock, supplierId, already, lowStockThreshold, cost } = req.body;
 
   if (productId && !isValidProductId(productId)) {
     return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
@@ -150,6 +151,12 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
   const submittedPrice = roundMoney(price);
   const threshold = parseThreshold(lowStockThreshold);
   const existingProduct = productId ? await Product.findOne({ productID: productId }) : null;
+  // Stage 7 (final.md): a new product's cost is required and always
+  // becomes a NoSupplier-tagged StockBatch — see the create branch below.
+  // Update path is unaffected (existingProduct truthy skips this).
+  if (!existingProduct && (!Number.isFinite(Number(cost)) || Number(cost) < 0)) {
+    return res.status(400).json({ success: false, message: 'Cost is required.' });
+  }
   // Stage 14: snapshot before any mutation, for the audit entry below.
   const beforeSnapshot = existingProduct ? existingProduct.toObject() : null;
 
@@ -180,17 +187,51 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
     });
   } else {
     const generatedProductId = await nextProductId();
+    const parsedStock = isNaN(parseInt(stock)) ? 0 : parseInt(stock);
+    const roundedCost = roundMoney(cost);
     const newProduct = new Product({
       productID: generatedProductId,
       productName,
       category,
       sellingPriceHistory: [{ price: submittedPrice }],
-      quantity: isNaN(parseInt(stock)) ? 0 : parseInt(stock),
+      // Stage 7: a real cost basis from the moment the product exists,
+      // same buyingPriceHistory shape POST /supplier/purchase writes —
+      // supplierID: null marks it self-purchased (NoSupplier), matching
+      // the StockBatch created below.
+      buyingPriceHistory: [{ price: roundedCost, date: new Date(), supplierID: null }],
+      quantity: parsedStock,
       reserved: 0,
       lowStockThreshold: threshold,
       supplierID: resolvedSupplier.value,
     });
-    await newProduct.save();
+
+    // Stage 7: only a positive initial stock has anything to batch — a
+    // zero-stock product still gets its cost basis recorded above, but
+    // there's nothing to create a StockBatch for yet (matches
+    // StockBatch's own quantityPurchased min: 1). Generated up front,
+    // same as POST /supplier/purchase, since it's not itself part of the
+    // transactional write.
+    const purchaseID = parsedStock > 0 ? await generateUniquePurchaseId() : null;
+
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await newProduct.save({ session });
+        if (parsedStock > 0) {
+          await createBatch({
+            productID: generatedProductId,
+            supplierID: null,
+            purchaseID,
+            quantity: parsedStock,
+            unitCost: roundedCost,
+            session,
+          });
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
     await logAudit({
       action: 'product.created',
       actor: { username: req.user.username, role: req.user.role },

@@ -15,7 +15,7 @@ import { useConfirm } from '../components/ConfirmDialog';
 // through as `supplierId` (main.js's resolveSupplierId() treats it the
 // same as an empty value: stored as null, no Supplier record required).
 const NO_SUPPLIER = 'NoSupplier';
-const emptyForm = { productId: '', productName: '', category: '', price: '', stock: '', supplierId: NO_SUPPLIER, lowStockThreshold: '' };
+const emptyForm = { productId: '', productName: '', category: '', price: '', stock: '', cost: '', supplierId: NO_SUPPLIER, lowStockThreshold: '' };
 const PAGE_SIZE = 10;
 
 export default function Products() {
@@ -113,6 +113,7 @@ export default function Products() {
       category: p.category,
       price: p.price ?? '',
       stock: '',
+      cost: '',
       supplierId: p.supplierId || NO_SUPPLIER,
       lowStockThreshold: p.lowStockThreshold ?? 10,
     });
@@ -124,6 +125,10 @@ export default function Products() {
     e.preventDefault();
     if ((mode === 'update' && !form.productId) || !form.productName) {
       toast.error('Product Name is required.');
+      return;
+    }
+    if (mode === 'add' && (form.cost === '' || isNaN(Number(form.cost)) || Number(form.cost) < 0)) {
+      toast.error('Cost is required.');
       return;
     }
     try {
@@ -305,6 +310,20 @@ export default function Products() {
                       className="border rounded px-3 py-2 w-full"
                     />
                   </div>
+                  {mode === 'add' && (
+                    <div>
+                      <label className="block mb-1 font-medium">Cost</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.cost}
+                        onChange={(e) => setForm({ ...form, cost: e.target.value })}
+                        placeholder="Enter cost"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block mb-1 font-medium">{mode === 'add' ? 'Stock' : 'Add Stock'}</label>
                     <input
