@@ -175,3 +175,37 @@ follow-up, not a re-do of this stage.
   note for the Add Product path specifically; Update Product still has
   no cost input and still doesn't batch (unchanged, and explicitly
   Stage 9's job to address).
+
+**2026-08-25 — Stage 8 complete.**
+
+**Stage 8 — Billing: show last-purchased cost (admin-only).**
+`frontend/src/pages/Billing.jsx` only, no backend changes — `GET
+/api/products` already returns `costPrice` per product (via
+`getLatestBuyingPrice()`). `handleSelectProduct` now also stores the
+selected product's `costPrice` on `itemForm`; a disabled "Cost Price"
+field (formatted via `formatMoney()`) renders next to the existing
+disabled "Unit Price" field in the item-entry form, gated behind
+`isAdmin` from `useAuth()` (same admin pattern used elsewhere in the
+app, e.g. `Users.jsx`/`AdminRoute`). Added `costPrice` to `itemForm`'s
+initial `useState` and both post-add/reset call sites for consistency,
+even though the display only reads it while a product is selected.
+
+**Verified:**
+- `npm install` + `npm run build` (Vite) — clean, no errors.
+- `npx oxlint frontend/src/pages/Billing.jsx` — 0 warnings, 0 errors.
+- Backend boot-tested with a real `.env` (no backend files touched this
+  stage; confirmed server still starts cleanly and
+  `POST /billing/orderDetails` still correctly returns 401 "Login
+  required." with no token).
+- `npm test` — all 66 existing tests pass unchanged.
+- Build/test artifacts (`node_modules` in both root and `frontend/`,
+  `frontend/dist`, `.env`) removed after verification, before packaging.
+
+**Known/open:**
+- No live browser in this sandbox — the actual on-screen placement/
+  styling of the new Cost Price field, and that it only appears for an
+  admin-role login, were not visually verified, only confirmed via code
+  review (`isAdmin` comes from `AuthContext`'s `role === 'admin'` check,
+  the same source every other admin-gated UI element in the app uses).
+  Recommend a manual click-through as admin and as a non-admin role once
+  merged.

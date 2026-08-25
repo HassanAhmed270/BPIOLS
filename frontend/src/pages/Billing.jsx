@@ -20,7 +20,7 @@ const WALKIN_CUSTOMER = 'Walk-in / Unknown';
 
 
 export default function Billing() {
-  const { username } = useAuth();
+  const { username, isAdmin } = useAuth();
   const confirm = useConfirm();
 
   const [products, setProducts] = useState([]);
@@ -40,7 +40,7 @@ export default function Billing() {
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [customerForm, setCustomerForm] = useState(emptyCustomerForm);
 
-  const [itemForm, setItemForm] = useState({ productId: '', productName: '', unitPrice: '', quantity: '', discount: '', discountType: 'none' });
+  const [itemForm, setItemForm] = useState({ productId: '', productName: '', unitPrice: '', costPrice: '', quantity: '', discount: '', discountType: 'none' });
   const [showDiscount, setShowDiscount] = useState(false);
   const [billingItems, setBillingItems] = useState({}); // { itemNo: {...} }
   const [itemNo, setItemNo] = useState(0);
@@ -260,6 +260,7 @@ export default function Billing() {
       productId: p.productID,
       productName: p.productName,
       unitPrice: p.price ?? 0,
+      costPrice: p.costPrice ?? 0,
       quantity: '',
       discount: '',
       discountType: 'none',   // ← add this line
@@ -328,7 +329,7 @@ export default function Billing() {
             offline: true, // never reserved server-side — re-validated at sync time
           },
         }));
-        setItemForm({ productId: '', productName: '', unitPrice: '', quantity: '', discount: '', discountType: 'none' });
+        setItemForm({ productId: '', productName: '', unitPrice: '', costPrice: '', quantity: '', discount: '', discountType: 'none' });
         setShowDiscount(false);
         setSelectedProductId(null);
         return;
@@ -360,7 +361,7 @@ export default function Billing() {
       },
     }));
 
-    setItemForm({ productId: '', productName: '', unitPrice: '', quantity: '', discount: '', discountType: 'none' }); // ← add discountType here
+    setItemForm({ productId: '', productName: '', unitPrice: '', costPrice: '', quantity: '', discount: '', discountType: 'none' }); // ← add discountType here
     setShowDiscount(false);   // ← add this line
     setSelectedProductId(null);
   };
@@ -786,6 +787,12 @@ export default function Billing() {
                     <label className="text-sm font-medium">Unit Price</label>
                     <input type="number" value={itemForm.unitPrice} disabled className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-2/3 bg-gray-100" />
                   </div>
+                  {isAdmin && (
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-medium">Cost Price</label>
+                      <input type="text" value={formatMoney(itemForm.costPrice)} disabled className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-2/3 bg-gray-100" />
+                    </div>
+                  )}
                   <div className="flex justify-between items-center">
                     <label className="text-sm font-medium">Quantity</label>
                     <input
