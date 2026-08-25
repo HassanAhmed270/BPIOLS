@@ -119,14 +119,17 @@ export default function Products() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.productId || !form.productName) {
-      alert('Product ID and Name are required.');
+    if ((mode === 'update' && !form.productId) || !form.productName) {
+      alert('Product Name is required.');
       return;
     }
     try {
-      await api.saveProduct({ ...form, already: mode === 'update' ? already : 0 });
+      const result = await api.saveProduct({ ...form, already: mode === 'update' ? already : 0 });
       await loadProducts();
       resetForm();
+      if (mode === 'add' && result?.productId) {
+        alert(`Product added successfully as ${result.productId}.`);
+      }
     } catch (err) {
       alert('Error saving product: ' + err.message);
     }
@@ -251,17 +254,17 @@ export default function Products() {
                   {mode === 'add' ? 'Add New Product' : 'Update Product'}
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4 w-full">
-                  <div>
-                    <label className="block mb-1 font-medium">Product ID</label>
-                    <input
-                      type="text"
-                      value={form.productId}
-                      disabled={mode === 'update'}
-                      onChange={(e) => setForm({ ...form, productId: e.target.value })}
-                      placeholder="e.g. #0001"
-                      className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70"
-                    />
-                  </div>
+                  {mode === 'update' && (
+                    <div>
+                      <label className="block mb-1 font-medium">Product ID</label>
+                      <input
+                        type="text"
+                        value={form.productId}
+                        disabled
+                        className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block mb-1 font-medium">Product Name</label>
                     <input

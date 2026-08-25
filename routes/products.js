@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
+const Counter = require('../models/Counter');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { roundMoney } = require('../lib/money');
@@ -29,6 +30,26 @@ function parseThreshold(value) {
 // NoSupplier). Rejects anything that isn't a valid, *existing* Supplier
 // id — per Stage 20's exit criteria, an arbitrary/stale id must 400, not
 // be silently accepted or silently coerced to null.
+// Stage 2 (final.md) — server-generated sequential Product IDs for
+// newly-created products. Backed by a Counter doc rather than
+// max(existing productID), so a deleted product's ID is never reissued.
+// Lazily seeded from the current max productID the first time it's used,
+// so pre-existing data doesn't collide with freshly generated IDs.
+async function nextProductId() {
+  let counter = await Counter.findById('productId');
+  if (!counter) {
+    const highest = await Product.findOne({ productID: /^#\d{4}$/ }).sort({ productID: -1 }).lean();
+    const seed = highest ? parseInt(highest.productID.slice(1), 10) : 0;
+    counter = await Counter.findOneAndUpdate(
+      { _id: 'productId' },
+      { $setOnInsert: { seq: seed } },
+      { new: true, upsert: true }
+    );
+  }
+  const updated = await Counter.findOneAndUpdate({ _id: 'productId' }, { $inc: { seq: 1 } }, { new: true });
+  return `#${String(updated.seq).padStart(4, '0')}`;
+}
+
 async function resolveSupplierId(rawSupplierId) {
   if (!rawSupplierId || rawSupplierId === NO_SUPPLIER) return { ok: true, value: null };
   if (!mongoose.Types.ObjectId.isValid(rawSupplierId)) return { ok: false };
@@ -115,7 +136,7 @@ router.get('/api/products/low-stock', requireAuth, requireAdmin, asyncHandler(as
 router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { productId, productName, category, price, stock, supplierId, already, lowStockThreshold } = req.body;
 
-  if (!isValidProductId(productId)) {
+  if (productId && !isValidProductId(productId)) {
     return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
   }
   if (!productName || !productName.trim()) {
@@ -128,7 +149,7 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
 
   const submittedPrice = roundMoney(price);
   const threshold = parseThreshold(lowStockThreshold);
-  const existingProduct = await Product.findOne({ productID: productId });
+  const existingProduct = productId ? await Product.findOne({ productID: productId }) : null;
   // Stage 14: snapshot before any mutation, for the audit entry below.
   const beforeSnapshot = existingProduct ? existingProduct.toObject() : null;
 
@@ -158,8 +179,9 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
       after: existingProduct.toObject(),
     });
   } else {
+    const generatedProductId = await nextProductId();
     const newProduct = new Product({
-      productID: productId,
+      productID: generatedProductId,
       productName,
       category,
       sellingPriceHistory: [{ price: submittedPrice }],
@@ -173,10 +195,11 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
       action: 'product.created',
       actor: { username: req.user.username, role: req.user.role },
       targetType: 'product',
-      targetId: productId,
+      targetId: generatedProductId,
       before: null,
       after: newProduct.toObject(),
     });
+    return res.status(200).json({ success: true, message: 'Product saved successfully', productId: generatedProductId });
   }
 
   res.status(200).json({ success: true, message: 'Product saved successfully' });

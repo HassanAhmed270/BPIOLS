@@ -9,5 +9,9 @@ export function roundMoney(value) {
 }
 
 export function formatMoney(value) {
-  return `$${roundMoney(value).toFixed(2)}`;
+  const n = roundMoney(value);
+  const negative = n < 0;
+  const [intPart, decPart] = Math.abs(n).toFixed(2).split('.');
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}Rs ${withCommas}.${decPart}`;
 }

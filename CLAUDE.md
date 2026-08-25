@@ -1,77 +1,70 @@
 # CLAUDE.md — BPIOLS Final Fixes
 
 The `production.md` phase (Stage 1–8) is complete and merged. This
-repository is now in a new, separate **final-fixes phase**, defined by
+repository is now in a separate **final-fixes phase**, defined by
 `final.md`. The MERN billing/POS application remains feature-complete;
 current work is a further round of correctness, UX, and workflow fixes
 Hassan identified after the production-hardening phase closed.
 
 ## Document authority
 
-- `final.md` is the authoritative plan for this phase.
-- `CLAUDE.md` (this file) contains current architecture and working
-  rules.
-- `final-progress.md` is the append-only log for this phase.
-- `production.md` / `production-progress.md` are the previous phase's
-  plan and log — complete, historical, do not use their Stage numbering
-  here.
-- `progress.md` is the original feature-build's historical log — also
-  not this phase's numbering.
+- `final.md` — authoritative plan. `CLAUDE.md` — architecture/working
+  rules. `final-progress.md` — append-only log for this phase.
+- `production.md` / `production-progress.md` — previous phase's plan/log,
+  complete and historical; do not use its Stage numbering here.
+- `progress.md` — original feature-build's historical log; also not this
+  phase's numbering.
 
-Final-fixes stages start at **Stage 1** and follow `final.md` only. Do
-not confuse this numbering with `production.md`'s Stage 1–8 or the
-original build's stage numbering — three completely independent
-sequences exist in this repo's history.
+Final-fixes stages start at **Stage 1** and follow `final.md` only —
+three independent stage-numbering sequences exist in this repo's history
+(this phase, `production.md`, and the original build).
 
 ## Start every task by syncing
 
-Before planning or changing code:
-
-1. Clone `https://github.com/HassanAhmed270/BPIOLS.git` into a scratch
-   directory, or, if already cloned in this session:
-   `git fetch origin main && git reset --hard origin/main`
-2. Read `final.md` in full.
-3. Read this `CLAUDE.md`.
-4. Read `final-progress.md` in full if it exists.
-5. Identify the next incomplete `final.md` stage and work only on it.
-
-Never trust a local clone from an earlier session. The repository may
-have changed since the previous task.
+1. Clone `https://github.com/HassanAhmed270/BPIOLS.git`, or
+   `git fetch origin main && git reset --hard origin/main` if already
+   cloned this session. Never trust an earlier session's clone.
+2. Read `final.md`, this `CLAUDE.md`, and `final-progress.md` (if it
+   exists) in full.
+3. Identify the next incomplete `final.md` stage and work only on it.
 
 ## Scope rules
 
-- Work one `final.md` stage at a time and in `final.md` order — several
-  stages have real dependencies on earlier ones (noted per stage in
-  `final.md`; e.g. Stage 6 depends on Stage 5, Stage 9 depends on
-  Stage 7, Stage 13 depends on Stage 12).
-- Touch only the stage's listed **Affected areas**.
-- If proper completion requires an out-of-scope change, stop and flag it.
-- An unrelated one-line, obviously-correct fix may be made inline, but
-  state that it was incidental. Otherwise flag unrelated issues instead.
+- Work one `final.md` stage at a time, in order — several stages depend
+  on earlier ones (noted per stage in `final.md`; e.g. Stage 6 depends on
+  5, Stage 9 on 7, Stage 13 on 12).
+- Touch only the stage's listed **Affected areas**. If proper completion
+  needs an out-of-scope change, stop and flag it — a small, clearly-
+  necessary addition a stage's own task list implies may proceed but must
+  be called out in `final-progress.md`.
+- An unrelated one-line, obviously-correct fix may be made inline, stated
+  as incidental. Otherwise flag unrelated issues instead of fixing them.
 - Do not refactor or "improve while you're here."
-- Prefer small, reversible commits. If a stage becomes too large (Stage 9
-  is flagged in `final.md` itself as the likeliest candidate), flag it
-  and split rather than push through oversized.
-- `final.md`'s "Deferred — not yet scoped" section is currently empty as
-  of the Stage 12–14 update — all items originally deferred (offline
-  management, dashboard offline visibility, exchange process) are now
-  scoped. Any newly-raised items go there first, then get promoted to a
-  numbered stage the same way, appended without renumbering existing
-  stages.
+- If a stage becomes too large (Stage 9 is flagged as the likeliest
+  candidate), flag it and split rather than push through oversized.
+- `final.md`'s "Deferred" section is currently empty — all originally-
+  deferred items are now scoped as Stages 12–14. Newly raised items go
+  there first, then get promoted to a numbered stage.
 
 ## Existing conventions
 
 Check for an existing helper before creating new logic.
 
 - Money: `lib/money.js` → `roundMoney()`; frontend mirror at
-  `frontend/src/lib/money.js` → `roundMoney()` / `formatMoney()` (Stage 1
-  of this phase changes `formatMoney()`'s output format — see `final.md`).
+  `frontend/src/lib/money.js` → `roundMoney()` / `formatMoney()`.
+  `formatMoney()` outputs PKR as of Stage 1 (`Rs 1,234.50`, comma
+  thousands-grouping, `-Rs X.XX` for negatives) — see `final-progress.md`.
 - Prices: `lib/pricing.js` (`getLatestSellingPrice`/`getLatestBuyingPrice`).
 - Validation: `lib/validators.js`.
 - Pagination/sorting: `lib/query.js`.
 - Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
 - Audit logging: `lib/auditLog.js` → `logAudit()`.
 - FIFO costing: `lib/costing.js`, `models/StockBatch.js`.
+- Sequential ID generation: `models/Counter.js` (added Stage 2) — a
+  generic `{ _id, seq }` doc per counter key, incremented atomically via
+  `findOneAndUpdate($inc)`. `routes/products.js`'s `nextProductId()` is
+  the first consumer; reuse this model rather than adding another
+  ad-hoc counter if a later stage needs one (e.g. Order IDs).
 - Frontend API calls: `frontend/src/lib/api.js`.
 
 When inside an existing MongoDB transaction, pass its session to helpers
@@ -86,37 +79,28 @@ doesn't otherwise need to touch.
 
 ## Verification
 
-- Every backend change: boot-test before calling it done — install deps,
-  start the server with a real `.env`, hit the relevant routes with
-  `curl`, all within one shell/tool call (background processes don't
-  persist across separate calls in this environment). No live MongoDB
-  replica set exists in the sandbox — routes requiring a DB write will
-  fail past the auth/validation layer; boot tests here confirm the route
-  mounts and loads without throwing and that pre-DB validation/auth logic
-  behaves correctly, not full end-to-end behavior against real data.
-- Every frontend change: `npm run build` (Vite) before calling it done.
+- Backend change: boot-test before calling it done — install deps, start
+  the server with a real `.env`, hit relevant routes with `curl`, all in
+  one shell/tool call. No live MongoDB replica set exists in the sandbox
+  — DB-writing routes fail past the auth/validation layer; boot tests
+  confirm the route mounts/loads and pre-DB validation/auth logic behaves
+  correctly, not full end-to-end behavior against real data.
+- Frontend change: `npm run build` (Vite) before calling it done.
 - `npm test` before calling any stage done — a stage that breaks an
   existing test is not complete.
-- Clean up test artifacts (`node_modules`, `.env`, `dist/`, log files)
-  after verifying, before packaging deliverables.
+- Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) after
+  verifying, before packaging deliverables.
 - No push credentials exist for this repo. Never claim to have pushed or
-  imply a change is live on GitHub — it isn't until Hassan merges it
-  himself.
+  imply a change is live on GitHub — it isn't until Hassan merges it.
 
 ## End-of-stage requirements
 
-A stage is not complete until:
-
-1. `final-progress.md` is appended with: changes made; verification
-   performed; open/known limitations.
-2. `CLAUDE.md` is updated if architecture, routing, conventions, or other
-   context here changed.
-3. The updated documentation files are delivered.
-4. Code changes are packaged, preferably:
-   `git bundle create output.bundle main`
-   or, if necessary, a `.patch` file.
-5. Exact commands for pulling/merging the changes are provided.
-6. Verified and unverified items are stated plainly.
+A stage is not complete until: `final-progress.md` is appended (changes
+made, verification performed, open/known limitations); `CLAUDE.md` is
+updated if architecture/routing/conventions changed; both docs are
+delivered; code changes are packaged (`git bundle create output.bundle
+main`, or a `.patch` file if necessary) with exact pull/merge commands;
+and verified vs. unverified items are stated plainly.
 
 Do not begin the next stage until the current stage is complete.
 
@@ -129,145 +113,120 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
   `sync.js`, `products.js`, `customers.js`, `billing.js` (incl.
   `orderDetails` checkout), `suppliers.js` (incl. `supplier/purchase`),
   `orders.js` (incl. edit/refund, `recomputeOrderTotals`/
-  `applyLineReduction`, and `GET /dashboard/load`), `audit.js`, and
-  `users.js` (`/api/users*`, admin-only account management plus the
-  self-service `/api/users/me/password`). Each mounts at
-  `app.use('/', ...)` since routes keep their original full paths rather
-  than one prefix per file. `main.js` itself only does app setup, DB
-  connection, middleware, route mounting, static frontend serving, the
-  error handler, and the draft-sweep interval.
-- Frontend: React + Vite + Tailwind under `frontend/`. Current pages:
-  `Billing.jsx`, `Products.jsx`, `Customers.jsx`, `Suppliers.jsx`,
-  `Orders.jsx`, `Reports.jsx`, `Dashboard.jsx`, `AuditLog.jsx`,
-  `Users.jsx`, `Login.jsx`. No UI component libraries beyond Tailwind are
-  installed as of the start of this phase — `final.md` Stage 5 adds the
-  first one (`sonner`, for toasts).
+  `applyLineReduction`, `GET /dashboard/load`), `audit.js`, `users.js`
+  (`/api/users*`, admin account mgmt plus self-service
+  `/api/users/me/password`). Each mounts at `app.use('/', ...)` since
+  routes keep their original full paths. `main.js` itself only does app
+  setup, DB connection, middleware, route mounting, static frontend
+  serving, the error handler, and the draft-sweep interval.
+- Frontend: React + Vite + Tailwind under `frontend/`. Pages: `Billing.jsx`,
+  `Products.jsx`, `Customers.jsx`, `Suppliers.jsx`, `Orders.jsx`,
+  `Reports.jsx`, `Dashboard.jsx`, `AuditLog.jsx`, `Users.jsx`, `Login.jsx`.
+  No UI component libraries beyond Tailwind yet — `final.md` Stage 5 adds
+  the first one (`sonner`, for toasts).
 - Production backend serves `frontend/dist`.
 - MongoDB **must run as a replica set** because checkout and other
   inventory mutations use multi-document transactions.
-- `.env` is required; `JWT_SECRET` is required for boot, and the server
-  also refuses to boot if `JWT_SECRET` still matches the placeholder
-  value shipped in `.env.example` (checked in `middleware/auth.js`).
+- `.env` is required; `JWT_SECRET` is required for boot and the server
+  refuses to boot if it still matches the placeholder in `.env.example`
+  (checked in `middleware/auth.js`).
 - `User.passwordChangedAt` is embedded into every issued JWT (`pwdTs`
-  claim). `requireAuth` re-reads the user's current `passwordChangedAt`
-  from the DB on every request and rejects the token if it's older than
-  the current value — so a password change invalidates all previously
-  issued tokens for that account. Any code path that changes a user's
-  password must update `passwordChangedAt` to a fresh `Date` for this to
-  take effect.
+  claim). `requireAuth` re-reads it from the DB on every request and
+  rejects the token if it's older than the current value — a password
+  change invalidates all previously issued tokens. Any code path that
+  changes a password must refresh `passwordChangedAt`.
 
-Core models include `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
-`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, and `User`.
-`final.md` Stage 9 adds a new Loss-tracking model/collection (exact shape
-left to implementation).
+Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
+`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, and
+(Stage 2) `Counter`. `final.md` Stage 9 adds a new Loss-tracking
+model/collection (exact shape left to implementation).
 
-Important invariants (as of the start of this phase — several are
-expected to change under specific `final.md` stages; check `final.md`
-and `final-progress.md` for the current state of each before relying on
-the description below):
+Important invariants (check `final.md`/`final-progress.md` for the
+current state of any item flagged as changing under a specific stage):
 
 - Product/order business IDs use `#0000`-style identifiers; do not
-  confuse them with Mongo `_id`. **`final.md` Stage 2** makes Product IDs
-  server-generated/sequential on create — no longer user-typed on Add.
+  confuse them with Mongo `_id`. **Stage 2 (done):** Add Product no
+  longer accepts a typed `productId` — `POST /api/product`'s create path
+  (i.e. no `productId` in the request, or one that matches no existing
+  product) always generates the next sequential `#000N` server-side via
+  `nextProductId()` (`routes/products.js`), backed by `models/Counter.js`
+  so a deleted product's ID is never reissued. The Update path is
+  unchanged: it still looks up by the submitted `productId` and merges
+  into that existing document. The frontend Add Product form
+  (`Products.jsx`) no longer has an ID input at all; Update Product still
+  shows the ID as a disabled, pre-filled field. `POST /api/product`
+  returns the generated `productId` in its JSON response for Add mode.
 - Product prices are history arrays; read them through `lib/pricing.js`.
 - Stock availability accounts for `reserved`.
 - Checkout uses persisted `PendingBill` data and server-side price/
-  discount verification.
-- Walk-in sales use the existing `Walk-in / Unknown` sentinel and remain
-  real audited orders without a customer credit record.
+  discount verification. Walk-in sales use the `Walk-in / Unknown`
+  sentinel and remain real audited orders without a customer credit
+  record.
 - `Product.supplierID` is an optional `Supplier` ObjectId; `NoSupplier`
-  is the self-purchase sentinel. **`final.md` Stage 9** removes
-  `NoSupplier` as a selectable option on Supplier Purchase specifically —
-  self-purchase still exists, but only via the new dedicated Add Stock /
-  Add Product flows on the Products page, never through the Suppliers
-  page.
-- Restocking and checkout use transactions.
-- FIFO stock costing is handled through `StockBatch` and `lib/costing.js`.
-  Historically (pre-this-phase), plain Product-form stock additions were
-  deliberately left un-batched (no cost input existed on that form).
-  **`final.md` Stage 7** ends that exception for Add Product (cost
-  becomes required, a real batch is created); **Stage 9** does the same
-  for restocking an existing product via the new dedicated Add Stock
-  action. After Stage 9, Update Product no longer has a stock field at
-  all, so there is no remaining un-batched stock-addition path.
-- Audit records are written through `logAudit()`.
-- CSV export and offline sync are optional feature-flagged modules.
-  `final.md` Stage 4 adds a PDF variant alongside each of the 5 existing
-  CSV export types.
+  is the self-purchase sentinel. `final.md` Stage 9 removes `NoSupplier`
+  as a selectable option on Supplier Purchase — self-purchase still
+  exists, but only via the dedicated Add Stock/Add Product flows on the
+  Products page.
+- Restocking and checkout use transactions. FIFO stock costing is
+  handled through `StockBatch` and `lib/costing.js`. Historically, plain
+  Product-form stock additions were left un-batched (no cost input
+  existed on that form). `final.md` Stage 7 ends that exception for Add
+  Product (cost becomes required, a real batch is created); Stage 9 does
+  the same for restocking via the new Add Stock action, after which
+  Update Product has no stock field at all.
+- Audit records are written through `logAudit()`. CSV export and offline
+  sync are optional feature-flagged modules. `final.md` Stage 4 adds a
+  PDF variant alongside each of the 5 existing CSV export types.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on its existing
-  `unique: true` index; no separate index was added.
+  `unique: true` index.
 - Customer store credit: `Customer.creditBalance` mirrors
-  `Supplier.creditBalance` — a running total the customer is owed from a
-  past refund/edit-down settled as credit rather than cash. An **edit**
-  always settles any freed-up overpayment as credit (an edit is a
-  correction/exchange, not a cash event); a **refund** takes an explicit
-  `settlement: 'cash'|'credit'` choice in the request body, defaulting to
-  `'cash'`. `POST /billing/orderDetails` auto-applies existing credit
-  against a new order's total before computing `amountPaid`/`balanceDue`,
-  mirroring the supplier-credit auto-apply in `POST /supplier/purchase`.
-  `Order.creditApplied` records how much credit covered a given order;
-  `Customer.orders[].creditApplied`/`creditGenerated` and
-  `Order.editHistory[].settlement`/`creditAmount` and
-  `Refund.settlement`/`creditGenerated` carry the same information at
-  their respective levels. `recomputeOrderTotals` (`routes/orders.js`)
-  returns the "settlement" amount it freed up, instead of letting an
-  overpayment silently vanish behind `balanceDue`'s clamp-to-zero.
-  `final.md` Stage 9 adds a second, distinct credit-adjustment path — a
-  Deduct Stock action with reason "Returned to Supplier" adjusts
-  *supplier* credit, not customer credit; keep these two mechanisms
-  clearly separate.
-- In-app user management: `routes/users.js` covers admin create/delete/
+  `Supplier.creditBalance` — money owed to the customer from a past
+  refund/edit-down settled as credit. An **edit** always settles freed-up
+  overpayment as credit; a **refund** takes an explicit
+  `settlement: 'cash'|'credit'` (default `'cash'`).
+  `POST /billing/orderDetails` auto-applies existing credit against a new
+  order's total before computing `amountPaid`/`balanceDue`, mirroring the
+  supplier-credit auto-apply in `POST /supplier/purchase`.
+  `Order.creditApplied`, `Customer.orders[].creditApplied`/
+  `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
+  `Refund.settlement`/`creditGenerated` carry this at each level.
+  `recomputeOrderTotals` (`routes/orders.js`) returns the settlement
+  amount freed up rather than letting it vanish behind `balanceDue`'s
+  clamp-to-zero. `final.md` Stage 9 adds a second, distinct credit path
+  (Deduct Stock, reason "Returned to Supplier", adjusts *supplier*
+  credit) — keep the two mechanisms separate.
+- User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
-  (`/api/users/me/password`, any role). Every password write sets
-  `passwordChangedAt`, invalidating prior tokens via the mechanism above.
-  Deleting your own account or the last remaining admin is blocked.
-  Frontend: `Users.jsx` at `/workers` (admin-only, `AdminRoute`) is the
-  only UI surface — there is currently no self-service "change my own
-  password" UI, only the working endpoint. This admin-only gating
-  (Workers tab hidden from non-admins client-side, `/workers` guarded by
-  `AdminRoute`, every `/api/users` route requiring
-  `requireAuth + requireAdmin` server-side) was reviewed at the start of
-  this phase and confirmed already sufficient — no `final.md` stage
-  exists for it.
+  (`/api/users/me/password`, any role); every password write refreshes
+  `passwordChangedAt`. Deleting your own account or the last admin is
+  blocked. `Users.jsx` at `/workers` (admin-only, `AdminRoute`) is the
+  only UI surface. This gating was reviewed at the phase start and
+  confirmed sufficient — no `final.md` stage exists for it.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
-  `routes/billing.js`'s `isWalkIn` skip — a queued offline sale for
-  `WALKIN_CUSTOMER` ("Walk-in / Unknown") skips the `Customer` lookup/409
-  and the customer order-history push, same as the live checkout path.
-  `WALKIN_CUSTOMER` is duplicated as a local const in
-  `lib/offlineSync.js` rather than imported (not exported from
-  `routes/billing.js`) — keep both in sync if the sentinel value ever
-  changes. Offline sync does not apply customer credit; that auto-apply
-  only exists in the live checkout path. **This system is the likely
-  starting point** for the deferred offline-management overhaul in
-  `final.md`'s "Deferred" section, once Hassan specifies that flow — do
-  not assume a from-scratch rebuild is wanted without checking against
-  what's already here first.
-- `final.md` Stage 12 adds a new `drafts` IndexedDB object store
-  (`frontend/src/lib/offlineQueue.js`, database `pos-offline-queue`,
-  alongside the existing `sales` store) so a cart survives a reload while
-  still being built offline, not just after it's been submitted and
-  queued. Stage 13 adds a `~1min` reconnect delay before auto-flushing
-  the `sales` queue, a blocking overlay during automatic flushes, a
-  bounded-retry post-sync existence check, and an `Order.offlineOrigin`
-  flag for later dashboard visibility — none of these change the
+  `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER`
+  ("Walk-in / Unknown") — duplicated as a local const (not exported from
+  `routes/billing.js`); keep both in sync if it ever changes. Offline
+  sync does not apply customer credit. Likely starting point for Stages
+  12–13: Stage 12 adds a `drafts` IndexedDB store
+  (`frontend/src/lib/offlineQueue.js`, db `pos-offline-queue`, alongside
+  the existing `sales` store) so a cart survives a reload mid-build.
+  Stage 13 adds a `~1min` reconnect delay before auto-flushing `sales`,
+  a blocking overlay during automatic flushes, a bounded-retry post-sync
+  existence check, and an `Order.offlineOrigin` flag — none change the
   queue's own commit/transaction/replay logic.
 - `POST /product/undo` validates `productId` with `isValidProductId()`
-  the same way `POST /api/product` does.
+  the same way `POST /api/product`'s update path does (its create path,
+  as of Stage 2, does not require a submitted `productId` at all).
 - `loginLimiter` (`middleware/rateLimit.js`) is `max: 20` per 15-minute
-  window with `skipSuccessfulRequests: true` — tuned for a single shared
-  shop IP where multiple workers' successful logins shouldn't eat into
-  the failed-attempt budget.
-- Billing's cart summary and standard receipt printout (`printReceiptFor`,
-  not the Special Bill) show a "Discount" line (sum of each line's $
-  discount) above Grand Total whenever it's greater than zero. `final.md`
-  Stage 10 changes the on-screen cart summary's item table specifically
-  (stacked lines instead of an 8-column table) — the Discount line itself
-  isn't removed, just the surrounding item-list layout.
-- `lib/reports.js`'s `getDashboardSummary` derives both `refundedOrders`
-  and `refundedAmount` from the same `Refund.aggregate` call scoped by
-  `refundDate` (`refundedOrders` via `$addToSet` on `orderID`), so the
-  two numbers always agree on the same date range.
+  window, `skipSuccessfulRequests: true` — tuned for a single shared shop
+  IP.
+- Billing's cart summary/receipt (`printReceiptFor`, not Special Bill)
+  show a "Discount" line above Grand Total when >0. `final.md` Stage 10
+  restyles the on-screen item table (stacked lines, not 8 columns) only.
+- `lib/reports.js`'s `getDashboardSummary` derives `refundedOrders` and
+  `refundedAmount` from one `Refund.aggregate` scoped by `refundDate`, so
+  both always agree on the same date range.
 
 ## Request flow
 
