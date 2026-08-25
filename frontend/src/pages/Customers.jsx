@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import SortableHeader from '../components/SortableHeader';
@@ -6,12 +7,14 @@ import Pagination from '../components/Pagination';
 import { api } from '../lib/api';
 import { formatMoney } from '../lib/money';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const emptyForm = { customerName: '', mobileNo: '', emergencyMobile: '', email: '', address: '' };
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PAGE_SIZE = 10;
 
 export default function Customers() {
+  const confirm = useConfirm();
   const [customers, setCustomers] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -83,11 +86,11 @@ export default function Customers() {
   const validate = () => {
     const { customerName, mobileNo, emergencyMobile, email, address } = form;
     if (!customerName && !mobileNo && !emergencyMobile && !email && !address) {
-      alert('Please fill the required fields.');
+      toast.error('Please fill the required fields.');
       return false;
     }
     if (email && !emailPattern.test(email)) {
-      alert('Please enter a valid email address.');
+      toast.error('Please enter a valid email address.');
       return false;
     }
     return true;
@@ -101,21 +104,21 @@ export default function Customers() {
       if (mode === 'add') {
         const data = await api.addCustomer(payload);
         if (!data.success) throw new Error(data.message || 'Failed to add customer');
-        alert('New customer added successfully!');
+        toast.success('New customer added successfully!');
       } else {
         const data = await api.updateCustomer(payload);
         if (!data.success) throw new Error(data.message || 'Failed to update customer');
-        alert('Customer updated successfully!');
+        toast.success('Customer updated successfully!');
       }
       await loadCustomers();
       resetForm();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
   const handleDelete = async (c) => {
-    if (!confirm(`Delete customer ${c.customerName}?`)) return;
+    if (!(await confirm(`Delete customer ${c.customerName}?`))) return;
     try {
       const data = await api.deleteCustomer(c.customerName);
       if (!data.success) throw new Error(data.message || 'Failed to delete customer');
@@ -124,7 +127,7 @@ export default function Customers() {
       setShowUndo(true);
       setTimeout(() => setShowUndo(false), 5000);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -138,7 +141,7 @@ export default function Customers() {
       setShowUndo(false);
       await loadCustomers();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 

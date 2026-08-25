@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const emptyCreateForm = { username: '', password: '', role: 'cashier' };
 
 export default function Users() {
   const { username: myUsername } = useAuth();
+  const confirm = useConfirm();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -36,11 +39,11 @@ export default function Users() {
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!createForm.username.trim()) {
-      alert('Username is required.');
+      toast.error('Username is required.');
       return;
     }
     if (createForm.password.length < 8) {
-      alert('Password must be at least 8 characters.');
+      toast.error('Password must be at least 8 characters.');
       return;
     }
     try {
@@ -48,33 +51,33 @@ export default function Users() {
       setCreateForm(emptyCreateForm);
       await loadUsers();
     } catch (err) {
-      alert('Error creating worker: ' + err.message);
+      toast.error('Error creating worker: ' + err.message);
     }
   };
 
   const handleDelete = async (u) => {
-    if (!confirm(`Delete worker ${u.username}? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete worker ${u.username}? This cannot be undone.`))) return;
     try {
       await api.deleteUser(u.username);
       await loadUsers();
     } catch (err) {
-      alert('Failed to delete worker: ' + err.message);
+      toast.error('Failed to delete worker: ' + err.message);
     }
   };
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (resetPassword.length < 8) {
-      alert('Password must be at least 8 characters.');
+      toast.error('Password must be at least 8 characters.');
       return;
     }
     try {
       await api.resetUserPassword(resetTarget.username, resetPassword);
-      alert(`Password reset for ${resetTarget.username}. They will need to log in again.`);
+      toast.success(`Password reset for ${resetTarget.username}. They will need to log in again.`);
       setResetTarget(null);
       setResetPassword('');
     } catch (err) {
-      alert('Failed to reset password: ' + err.message);
+      toast.error('Failed to reset password: ' + err.message);
     }
   };
 

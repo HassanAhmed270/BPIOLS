@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import SortableHeader from '../components/SortableHeader';
@@ -7,6 +8,7 @@ import { api } from '../lib/api';
 import { formatMoney, roundMoney } from '../lib/money';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useAuth } from '../lib/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 
 // Stage 20: the self-purchased/no-supplier sentinel — must match
 // NO_SUPPLIER in main.js exactly, same pattern as WALKIN_CUSTOMER
@@ -20,6 +22,7 @@ const PAGE_SIZE = 10;
 
 export default function Suppliers() {
   const { isAdmin } = useAuth();
+  const confirm = useConfirm();
   const [suppliers, setSuppliers] = useState([]);
   const [total, setTotal] = useState(0);
   // Full, unpaginated lists — used only to populate the dropdowns below,
@@ -150,7 +153,7 @@ export default function Suppliers() {
   const handleAddSupplier = async (e) => {
     e.preventDefault();
     if (!supplierForm.supplierName.trim()) {
-      alert('Supplier name is required.');
+      toast.error('Supplier name is required.');
       return;
     }
     try {
@@ -158,18 +161,18 @@ export default function Suppliers() {
       setSupplierForm(emptySupplierForm);
       await reloadEverything();
     } catch (err) {
-      alert('Error saving supplier: ' + err.message);
+      toast.error('Error saving supplier: ' + err.message);
     }
   };
 
   const handleDeleteSupplier = async (s) => {
-    if (!confirm(`Delete supplier ${s.supplierName}? Its purchase history will be lost.`)) return;
+    if (!(await confirm(`Delete supplier ${s.supplierName}? Its purchase history will be lost.`))) return;
     try {
       await api.deleteSupplier(s.supplierName);
       if (expandedName === s.supplierName) setExpandedName(null);
       await reloadEverything();
     } catch (err) {
-      alert('Failed to delete supplier: ' + err.message);
+      toast.error('Failed to delete supplier: ' + err.message);
     }
   };
 
@@ -179,7 +182,7 @@ export default function Suppliers() {
     const qty = parseInt(quantity);
     const cost = parseFloat(unitCost);
     if (!supplierName || !productId || isNaN(qty) || qty <= 0 || isNaN(cost) || cost < 0) {
-      alert('Please fill in supplier, product, a valid quantity, and a valid unit cost.');
+      toast.error('Please fill in supplier, product, a valid quantity, and a valid unit cost.');
       return;
     }
     // Stage 21: selling price is optional on this form — blank means
@@ -190,7 +193,7 @@ export default function Suppliers() {
     if (trimmedSellingPrice !== '') {
       sp = parseFloat(trimmedSellingPrice);
       if (isNaN(sp) || sp < 0) {
-        alert('Selling price must be a valid non-negative number, or left blank to leave it unchanged.');
+        toast.error('Selling price must be a valid non-negative number, or left blank to leave it unchanged.');
         return;
       }
     }
@@ -201,7 +204,7 @@ export default function Suppliers() {
         amountPaid: parseFloat(amountPaid) || 0,
       });
       if (data.selfPurchase) {
-        alert(`Purchase ${data.purchaseID} recorded (self-purchased, no supplier balance).`);
+        toast.success(`Purchase ${data.purchaseID} recorded (self-purchased, no supplier balance).`);
       } else {
         // Stage 21 credit fix: surface both sides plainly — what's still
         // owed on this purchase, and (if this payment covered more than
@@ -219,13 +222,13 @@ export default function Suppliers() {
         if (data.creditBalance > 0) {
           lines.push(`Supplier now has ${formatMoney(data.creditBalance)} credit total, which will reduce their next purchase automatically.`);
         }
-        alert(lines.join(' '));
+        toast.success(lines.join(' '));
       }
       autoFilledPaid.current = '';
       setPurchaseForm(emptyPurchaseForm);
       await reloadEverything();
     } catch (err) {
-      alert('Error recording purchase: ' + err.message);
+      toast.error('Error recording purchase: ' + err.message);
     }
   };
 

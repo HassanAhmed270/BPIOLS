@@ -66,11 +66,11 @@ Check for an existing helper before creating new logic.
   the first consumer; reuse this model rather than adding another
   ad-hoc counter if a later stage needs one (e.g. Order IDs).
 - Frontend API calls: `frontend/src/lib/api.js`.
-- Toasts/confirms (Stage 5): `sonner`'s `<Toaster>` mounted in `App.jsx`;
-  use `toast()`/`toast.success()`/`toast.error()` anywhere.
+- Toasts/confirms (Stage 5, migrated Stage 6): `sonner`'s `<Toaster>`
+  mounted in `App.jsx`, use `toast()`/`.success()`/`.error()`;
   `frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
-  (mounted in `App.jsx`) and `useConfirm()` — `if (await
-  confirm('Delete this?')) { ... }`. No call sites migrated — Stage 6.
+  (mounted in `App.jsx`) and `useConfirm()` — `if (await confirm('Delete
+  this?')) { ... }`. Zero `alert()`/`confirm()` remain in `pages/`.
 
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
@@ -141,9 +141,9 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
   changes a password must refresh `passwordChangedAt`.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
-`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, and
-(Stage 2) `Counter`. `final.md` Stage 9 adds a new Loss-tracking
-model/collection (exact shape left to implementation).
+`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
+(Stage 2). `final.md` Stage 9 adds a new Loss-tracking model/collection
+(exact shape left to implementation).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
@@ -181,7 +181,7 @@ current state of any item flagged as changing under a specific stage):
   route's existing `{ key, label }` columns. `Reports.jsx` has a CSV +
   PDF button per card; `api.js`'s `downloadExport()` gained a `format` arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
-  `Product.category`. `Supplier.supplierName` relies on its `unique: true` index.
+  `Product.category`. `Supplier.supplierName` relies on `unique: true`.
 - Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up

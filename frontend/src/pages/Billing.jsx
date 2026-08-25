@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../lib/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { roundMoney, formatMoney } from '../lib/money';
 import { printReceipt } from '../lib/print';
@@ -19,6 +21,7 @@ const WALKIN_CUSTOMER = 'Walk-in / Unknown';
 
 export default function Billing() {
   const { username } = useAuth();
+  const confirm = useConfirm();
 
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -146,7 +149,7 @@ export default function Billing() {
       try {
         const data = await api.getDraft();
         if (data.draft && data.draft.items?.length > 0) {
-          const resume = confirm(`You have an unfinished bill with ${data.draft.items.length} item(s) from earlier. Resume it?`);
+          const resume = await confirm(`You have an unfinished bill with ${data.draft.items.length} item(s) from earlier. Resume it?`);
           if (resume) {
             const restored = {};
             data.draft.items.forEach((it, idx) => {
@@ -174,7 +177,7 @@ export default function Billing() {
         console.error('Failed to check for a draft bill:', err.message);
       }
     })();
-  }, []);
+  }, [confirm]);
 
   // Debounced autosave: fires ~7s after the cart, customer, or bill ID last
   // changed (spec range was 5-10s). Skips while the cart is empty so we
@@ -266,7 +269,7 @@ export default function Billing() {
 
   const handleAddToBill = async () => {
     if (!selectedProductId) {
-      alert('Please select a product from the table first!');
+      toast.error('Please select a product from the table first!');
       return;
     }
     const quantity = parseInt(itemForm.quantity);
@@ -274,17 +277,17 @@ export default function Billing() {
     const unitPrice = roundMoney(itemForm.unitPrice);
 
     if (!itemForm.productName || isNaN(unitPrice) || isNaN(quantity) || quantity <= 0) {
-      alert('Please enter valid item details!');
+      toast.error('Please enter valid item details!');
       return;
     }
     if (discount < 0 || discount > 100) {
-      alert('Discount must be between 0 and 100.');
+      toast.error('Discount must be between 0 and 100.');
       return;
     }
 
     const product = products.find((p) => p.productID === selectedProductId);
     if (!product) {
-      alert('Invalid product selection!');
+      toast.error('Invalid product selection!');
       return;
     }
 
@@ -308,7 +311,7 @@ export default function Billing() {
           .reduce((sum, it) => sum + it.quantity, 0);
         const softAvailable = (product.available ?? product.quantity - (product.reserved || 0)) - alreadyInCart;
         if (softAvailable < quantity) {
-          alert(`Offline — based on the last known stock, only ${Math.max(softAvailable, 0)} unit(s) of this item look available. Add fewer, or confirm with the customer.`);
+          toast.error(`Offline — based on the last known stock, only ${Math.max(softAvailable, 0)} unit(s) of this item look available. Add fewer, or confirm with the customer.`);
           return;
         }
         const nextItemNo = itemNo + 1;
@@ -330,7 +333,7 @@ export default function Billing() {
         setSelectedProductId(null);
         return;
       }
-      alert(err.message || 'Could not reserve stock for this item.');
+      toast.error(err.message || 'Could not reserve stock for this item.');
       await loadProducts(); // someone else's sale likely just changed availability — resync
       return;
     }
@@ -406,12 +409,12 @@ export default function Billing() {
       await saveDraftNow(undefined, undefined, candidate);
       setView('preview');
     } catch (err) {
-      alert('Error generating bill id: ' + err.message);
+      toast.error('Error generating bill id: ' + err.message);
     }
   };
 
   const removeItem = async (key) => {
-    if (!confirm('Do you want to remove this item?')) return;
+    if (!(await confirm('Do you want to remove this item?'))) return;
     const item = billingItems[key];
 
     // Remove from the cart immediately for responsiveness; the release
@@ -561,11 +564,11 @@ export default function Billing() {
     const total = grandTotal;
     const paidNum = parseFloat(paid) || 0;
     if (paidNum < 0) {
-      alert('Payment amount can\'t be negative.');
+      toast.error('Payment amount can\'t be negative.');
       return;
     }
     if (customer === 'unknown') {
-      alert('Please select a customer before generating the bill.');
+      toast.error('Please select a customer before generating the bill.');
       return;
     }
     // Underpayment is now allowed — the shortfall becomes customer credit
@@ -573,7 +576,7 @@ export default function Billing() {
     // a bill on $0 paid by mistake.
     if (paidNum < total) {
       const shortfall = roundMoney(total - paidNum);
-      const proceed = confirm(
+      const proceed = await confirm(
         `Customer is paying ${formatMoney(paidNum)} of ${formatMoney(total)}. ` +
         `${formatMoney(shortfall)} will be recorded as a balance owed on their account. Continue?`
       );
@@ -594,12 +597,12 @@ export default function Billing() {
       // to send or persist from this side.
       const data = await api.saveOrder();
       if (!data.success) {
-        alert(data.message || 'Order failed. Try again.');
+        toast.error(data.message || 'Order failed. Try again.');
         return;
       }
 
       (special ? printSpecialReceiptFor : printReceiptFor)(total, paidNum);
-      alert('Order saved successfully.');
+      toast.success('Order saved successfully.');
       resetBill();
       setCustomer('unknown');
       setShowSpecialPreview(false);
@@ -631,16 +634,16 @@ export default function Billing() {
             createdOfflineAt: new Date().toISOString(),
           });
           (special ? printSpecialReceiptFor : printReceiptFor)(total, paidNum, true);
-          alert('No connection — this bill has been saved on this device and will sync automatically once you\'re back online.');
+          toast.success('No connection — this bill has been saved on this device and will sync automatically once you\'re back online.');
           resetBill();
           setCustomer('unknown');
           setShowSpecialPreview(false);
         } catch (queueErr) {
-          alert('Could not save this bill, even offline: ' + queueErr.message);
+          toast.error('Could not save this bill, even offline: ' + queueErr.message);
         }
         return;
       }
-      alert('Error saving order: ' + err.message);
+      toast.error('Error saving order: ' + err.message);
     }
   };
 
@@ -661,7 +664,7 @@ export default function Billing() {
       return;
     }
     if (email && !emailPattern.test(email)) {
-      alert('Please enter a valid email address.');
+      toast.error('Please enter a valid email address.');
       return;
     }
     const cleanName = customerName.trim().replace(/\s+/g, ' ');
@@ -671,12 +674,12 @@ export default function Billing() {
         setCustomers((prev) => [...prev, cleanName]);
         setCustomerDirectory((prev) => ({ ...prev, [cleanName]: { mobileNo, email, address } }));
         setCustomer(cleanName);
-        alert('New customer added successfully!');
+        toast.success('New customer added successfully!');
       } else {
-        alert(data.message || 'Failed to add new customer.');
+        toast.error(data.message || 'Failed to add new customer.');
       }
     } catch (err) {
-      alert('Error adding customer: ' + err.message);
+      toast.error('Error adding customer: ' + err.message);
     } finally {
       setShowCustomerForm(false);
       setCustomerForm(emptyCustomerForm);
@@ -946,11 +949,11 @@ export default function Billing() {
                 <button
                   onClick={() => {
                     if (customer === 'unknown') {
-                      alert('Please select a customer before previewing the Special Bill.');
+                      toast.error('Please select a customer before previewing the Special Bill.');
                       return;
                     }
                     if (Object.keys(billingItems).length === 0) {
-                      alert('Add at least one item before previewing the Special Bill.');
+                      toast.error('Add at least one item before previewing the Special Bill.');
                       return;
                     }
                     setShowSpecialPreview(true);

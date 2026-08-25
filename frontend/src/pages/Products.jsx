@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import SortableHeader from '../components/SortableHeader';
@@ -7,6 +8,7 @@ import { api } from '../lib/api';
 import { formatMoney } from '../lib/money';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useAuth } from '../lib/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 
 // Stage 20: the self-purchased/no-supplier sentinel — must match
 // NO_SUPPLIER in main.js exactly, since this string is sent straight
@@ -18,6 +20,7 @@ const PAGE_SIZE = 10;
 
 export default function Products() {
   const { isAdmin } = useAuth();
+  const confirm = useConfirm();
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,7 +123,7 @@ export default function Products() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if ((mode === 'update' && !form.productId) || !form.productName) {
-      alert('Product Name is required.');
+      toast.error('Product Name is required.');
       return;
     }
     try {
@@ -128,15 +131,15 @@ export default function Products() {
       await loadProducts();
       resetForm();
       if (mode === 'add' && result?.productId) {
-        alert(`Product added successfully as ${result.productId}.`);
+        toast.success(`Product added successfully as ${result.productId}.`);
       }
     } catch (err) {
-      alert('Error saving product: ' + err.message);
+      toast.error('Error saving product: ' + err.message);
     }
   };
 
   const handleDelete = async (p) => {
-    if (!confirm(`Delete product ${p.productID}?`)) return;
+    if (!(await confirm(`Delete product ${p.productID}?`))) return;
     try {
       await api.deleteProduct(p.productID);
       setUndoStack((s) => [
@@ -155,7 +158,7 @@ export default function Products() {
       setShowUndo(true);
       setTimeout(() => setShowUndo(false), 5000);
     } catch (err) {
-      alert('Failed to delete product: ' + err.message);
+      toast.error('Failed to delete product: ' + err.message);
     }
   };
 
@@ -168,7 +171,7 @@ export default function Products() {
       setShowUndo(false);
       await loadProducts();
     } catch (err) {
-      alert('Failed to undo: ' + err.message);
+      toast.error('Failed to undo: ' + err.message);
     }
   };
 

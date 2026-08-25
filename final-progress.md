@@ -137,3 +137,56 @@ scope ("No call sites are touched in this stage" — that's Stage 6).
 - `ConfirmProvider` and the `<Toaster>` are now permanently mounted at
   the app root (this is intended — "wire up its provider once at the
   app root" is Stage 5's own task, not a leftover from the smoke test).
+
+**2026-08-25 — Stage 6 complete.**
+
+**Stage 6 — Migrate all alert()/confirm() call sites.** Re-verified
+call-site counts at the start of the stage (unchanged from `final.md`'s
+own count: `Billing.jsx` 23, `Orders.jsx` 11, `Suppliers.jsx` 9,
+`Customers.jsx` 8, `Users.jsx` 8, `Products.jsx` 6 — the extra one vs.
+`final.md`'s "5" is the plain success alert Stage 2 added, which the
+plan's own note anticipated). All 6 files now import `toast` from
+`sonner` and `useConfirm` from `ConfirmDialog.jsx`, and call
+`const confirm = useConfirm();` once at the top of the component. Every
+`alert()` became `toast.success()` (positive outcomes: item saved,
+order/customer/product created or updated, password reset, offline-save
+confirmation) or `toast.error()` (validation failures and caught-error
+messages) based on context. Every `confirm()` became
+`await confirm(...)` — all 6 call sites were already inside `async`
+functions, so no restructuring was needed beyond adding `await`. One
+incidental fix: Billing.jsx's top-level `useEffect` that calls
+`confirm()` (the "resume unfinished bill?" prompt) was missing `confirm`
+from its dependency array once `confirm` became a real hook value
+instead of the global `window.confirm` — added it (safe, since
+`useConfirm()`'s returned function is a stable `useCallback` reference,
+so this doesn't change when the effect fires).
+
+**Verified:**
+- Confirmed via `grep -rn '\balert(\|\bconfirm('` across
+  `frontend/src/pages/` that the only matches remaining are the new
+  `await confirm(...)` call sites — zero raw `alert()`/`window.confirm()`
+  calls anywhere in `pages/`, and none were ever present outside
+  `pages/` either.
+- `npm install` + `npm run build` (Vite) — clean, no errors.
+- `npm run lint` (`oxlint`) — 0 errors both before and after; the only
+  warnings are two pre-existing-pattern `react/only-export-components`
+  notices (one on `useAuth` from Stage-0-era code, one now on the new
+  `useConfirm`, same shape, not a regression) — no lint errors introduced
+  by this stage.
+- `npm test` (backend) — all 66 tests pass unchanged; this stage made no
+  backend changes.
+- Test/build artifacts (`node_modules` in both root and `frontend/`,
+  `frontend/dist`, `.env`) removed after verification, before packaging.
+
+**Known/open:**
+- No live-browser check of actual toast/confirm behavior on each of the
+  6 migrated pages was possible in this sandbox (no live browser) — same
+  standing constraint as every prior UI-facing stage. The build+lint
+  clean pass and the exhaustive `grep` sweep are the verification this
+  sandbox can offer; a quick manual click-through per page is recommended
+  once merged.
+- Success vs. error toast styling was chosen by reading each message's
+  intent (e.g. "X saved successfully" → success, a caught `err.message`
+  → error) rather than from any explicit spec in `final.md` beyond
+  "styled appropriately based on context" — flagging the judgment call,
+  not a defect.

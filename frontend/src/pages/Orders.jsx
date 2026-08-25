@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import Sidebar from '../components/Sidebar';
 import Topbar from '../components/Topbar';
 import SortableHeader from '../components/SortableHeader';
 import Pagination from '../components/Pagination';
 import { useAuth } from '../lib/AuthContext';
+import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { formatMoney } from '../lib/money';
 import { printReceipt } from '../lib/print';
@@ -20,6 +22,7 @@ const PAGE_SIZE = 10;
 
 export default function Orders() {
   const { isAdmin } = useAuth();
+  const confirm = useConfirm();
 
   const [orders, setOrders] = useState([]);
   const [total, setTotal] = useState(0);
@@ -90,7 +93,7 @@ export default function Orders() {
       const data = await api.getOrder(orderID);
       setDetail(data);
     } catch (err) {
-      alert('Failed to load order: ' + err.message);
+      toast.error('Failed to load order: ' + err.message);
       setExpandedID(null);
     } finally {
       setDetailLoading(false);
@@ -107,17 +110,17 @@ export default function Orders() {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    if (!editForm.productID) return alert('Select a line item to edit.');
+    if (!editForm.productID) return toast.error('Select a line item to edit.');
     const newQty = parseInt(editForm.newQty);
-    if (isNaN(newQty) || newQty < 0) return alert('Enter a valid new quantity.');
-    if (!editForm.reason.trim()) return alert('A reason is required.');
+    if (isNaN(newQty) || newQty < 0) return toast.error('Enter a valid new quantity.');
+    if (!editForm.reason.trim()) return toast.error('A reason is required.');
     try {
       await api.editOrderItem(expandedID, { productID: editForm.productID, newQty, reason: editForm.reason.trim() });
-      alert('Order updated.');
+      toast.success('Order updated.');
       setEditForm({ productID: '', newQty: '', reason: '' });
       await refreshDetail(expandedID);
     } catch (err) {
-      alert('Edit failed: ' + err.message);
+      toast.error('Edit failed: ' + err.message);
     }
   };
 
@@ -135,9 +138,9 @@ export default function Orders() {
     const items = Object.entries(refundForm)
       .filter(([, qty]) => parseInt(qty) > 0)
       .map(([productID, qty]) => ({ productID, quantity: parseInt(qty) }));
-    if (items.length === 0) return alert('Select at least one item to refund.');
-    if (!refundReason.trim()) return alert('A reason is required.');
-    if (!confirm(`Refund ${items.length} item(s) on ${expandedID}? This marks the whole order as refunded.`)) return;
+    if (items.length === 0) return toast.error('Select at least one item to refund.');
+    if (!refundReason.trim()) return toast.error('A reason is required.');
+    if (!(await confirm(`Refund ${items.length} item(s) on ${expandedID}? This marks the whole order as refunded.`))) return;
 
     try {
       const data = await api.refundOrder(expandedID, {
@@ -156,13 +159,13 @@ export default function Orders() {
       if (data.refund.creditGenerated > 0) {
         message += `\n${formatMoney(data.refund.creditGenerated)} was added to the customer's store credit.`;
       }
-      alert(message);
+      toast.success(message);
       setRefundForm({});
       setRefundReason('');
       setRefundSettlement('cash');
       await refreshDetail(expandedID);
     } catch (err) {
-      alert('Refund failed: ' + err.message);
+      toast.error('Refund failed: ' + err.message);
     }
   };
 
