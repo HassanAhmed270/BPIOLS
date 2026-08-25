@@ -31,189 +31,109 @@ for (15 as their own stage/closed-item, #7 folded into Stage 9's scope
 rather than kept separate). `final.md` now has 14 stages; the "Deferred"
 section is empty. No code changed this update — planning only.
 
-**2026-08-25 — Stages 1 & 2 complete.**
+**2026-08-25 — Stages 1–4 complete (condensed).**
 
 **Stage 1 — Currency: PKR.** `frontend/src/lib/money.js`'s `formatMoney()`
-rewritten to output `Rs 1,234.50` (comma thousands-grouping, `-Rs X.XX`
-for negatives), replacing the old `$X.XX` format. `roundMoney()`
-unchanged. Confirmed by grep that no other frontend file has a hardcoded
-`$` money literal outside this function — every money display already
-routes through `formatMoney()`, so no other file needed changes, per the
-stage's own contingency note.
+outputs `Rs 1,234.50` (comma thousands-grouping, `-Rs X.XX` for
+negatives), replacing `$X.XX`. Confirmed via grep no other file has a
+hardcoded `$` outside `formatMoney()`.
 
 **Stage 2 — Product ID auto-generation.** `routes/products.js`'s
-`POST /api/product` create path now ignores any submitted `productId`
-and generates the next sequential `#000N` server-side via a new
-`nextProductId()` helper, backed by a new `models/Counter.js`
-(`{ _id, seq }`, incremented atomically with `findOneAndUpdate($inc)`,
-lazily seeded from the current max existing `productID` on first use) so
-a deleted product's ID is never reissued. The existing-product (update)
-merge branch is unchanged — it still looks up by the submitted
-`productId`. The response now includes the generated `productId` for the
-create path. `frontend/src/pages/Products.jsx`: removed the Product ID
-input from the Add Product form entirely; Update Product still shows the
-ID as a disabled, pre-filled field. Submit validation on Add no longer
-requires a typed ID (only Product Name). On successful Add, a plain
-alert shows the generated ID (e.g. "Product added successfully as
-#0007.") — full toast styling is Stage 5/6's job, this is the plain
-message the stage description allows for now.
-
-*Note (flagged, not a scope violation):* `models/Counter.js` is a new
-file not listed in Stage 2's "Affected areas" (`routes/products.js`,
-`frontend/src/pages/Products.jsx`). It was added because the stage's own
-task list requires collision-free, non-reused sequential IDs, which
-isn't achievable by scanning `Product.productID` alone (a deleted
-product's number would otherwise be reissued). This is a small, generic,
-reusable helper (documented in `CLAUDE.md` under "Existing conventions"
-so later stages needing another counter — e.g. Order IDs — reuse it
-rather than duplicating the pattern).
-
-**Verified:**
-- Backend: `npm install`, boot-tested with a real `.env` (fresh
-  `JWT_SECRET` generated, no other values changed) — server starts
-  cleanly, `routes/products.js` mounts without throwing. Unauthenticated
-  `POST /api/product` correctly returns 401. No live MongoDB replica set
-  in the sandbox, so `nextProductId()`/`Counter` writes and the full
-  create/update flow were not exercised against real data — only
-  route-mount and pre-DB auth/validation behavior were confirmed.
-- `npm test` — all 66 existing tests pass unchanged (money/validator
-  tests only cover backend `lib/money.js`/`lib/validators.js`, which
-  Stage 1/2 didn't touch).
-- Frontend: `npm install` + `npm run build` (Vite) — clean build, no
-  errors, both stages' changes included.
-- Test/build artifacts (`node_modules`, `.env`, `frontend/dist`) removed
-  after verification, before packaging.
-
-**Known/open:**
-- Product ID format is still capped at 4 digits (`#0001`–`#9999`,
-  unchanged Mongoose schema `match: /^#\d{4}$/`); `nextProductId()` does
-  not currently guard against overflow past `#9999` — out of scope for
-  this stage, flagging for awareness only.
-- No real end-to-end verification of ID sequencing or collision-freedom
-  against live data was possible in this sandbox (no MongoDB available);
-  this is standard for this project's verification constraints, not a
-  gap introduced by this stage.
-- Stage 1's "Manual visual check recommended" note stands — not
-  performable in this sandbox (no live browser).
-
-**2026-08-25 — Stage 3 complete.**
+`POST /api/product` create path ignores any submitted `productId` and
+generates the next sequential `#000N` server-side via `nextProductId()`,
+backed by new `models/Counter.js` (`{ _id, seq }`, atomic
+`findOneAndUpdate($inc)`, lazily seeded from current max `productID`) so
+deleted IDs are never reissued. Update path unchanged. Response includes
+the generated `productId`. `Products.jsx`: Product ID input removed from
+Add; Update still shows it disabled/pre-filled. `models/Counter.js` was
+flagged as a small, generic, reusable addition outside the stage's listed
+files (documented in `CLAUDE.md` for reuse by later stages).
+*Known:* Product ID still capped at 4 digits (`#0001`–`#9999`); no
+overflow guard added (out of scope).
 
 **Stage 3 — Audit log: flattened readable table.** New
-`frontend/src/lib/flattenObject.js` exports `flattenObject(obj, prefix)`
-(recursively flattens nested objects/arrays into `{ path, value }` pairs
-using dot/bracket paths, e.g. `items[0].productName`; empty objects/arrays
-and primitives resolve to a single leaf row so shape is never silently
-dropped) and `lastSegment(path)` (extracts the trailing key name for
-per-field formatting lookups). `AuditLog.jsx`'s expanded-row detail no
-longer renders `JSON.stringify(entry.before/after, null, 2)` inside
-`<pre>` blocks; it now builds a merged Field/Before/After row set
-(`buildDiffRows`) over the union of both snapshots' flattened paths, one
-row per path, sorted alphabetically. Rows where the formatted Before and
-After differ get a yellow-tint/bold highlight; for a `create` entry
-(`entry.before === null`) every row's Before cell renders blank rather
-than the flattened literal `null`. Field values whose trailing key
-matches `price`/`amount`/`balance`/`paid`/`due`/`cost` (case-insensitive)
-are run through the existing `formatMoney()`; keys matching `date` or
-ending in `At` are rendered via `Date.parse` + `toLocaleString()` when
-parseable. Everything else stringifies as-is; a leaf value that is
-itself a nested object/array (e.g. inside a deeply mixed structure) falls
-back to a plain `JSON.stringify` of just that one cell, not the whole
-entry — this is not a raw-dump regression, no entry, top-level or nested,
-is rendered as one undifferentiated JSON blob anymore.
+`frontend/src/lib/flattenObject.js` (`flattenObject()`, `lastSegment()`)
+flattens nested `before`/`after` snapshots into `{ path, value }` rows.
+`AuditLog.jsx` replaced its raw `JSON.stringify` `<pre>` dump with a
+merged Field/Before/After table (`buildDiffRows`), differing rows
+highlighted, `create` entries show blank Before, money/date-looking keys
+formatted via `formatMoney()`/`toLocaleString()`. No backend changes.
+
+**Stage 4 — PDF export alongside CSV.** Added `pdfkit` dependency. New
+`lib/pdf.js`'s `sendTablePDF()` streams a landscape A4 table PDF (title/
+subtitle, dark header row, page breaks, empty-data message), sharing each
+route's existing `{ key, label }` column list with `lib/csv.js`.
+`routes/export.js`: all 5 routes gained a `?format=pdf` query param
+(default CSV) via a shared `sendReport()` helper. `api.js`'s
+`downloadExport()` gained a `format` arg; `Reports.jsx` shows CSV + PDF
+buttons per report card.
+
+**Verified (Stages 1–4, combined):** backend boot-tested with a real
+`.env` each stage (server starts cleanly, relevant routes mount, return
+correct pre-DB auth responses); `npm test` — all 66 tests pass unchanged
+throughout; `npm install` + `npm run build` (Vite) clean each stage;
+`lib/pdf.js` additionally verified directly via a standalone script
+(valid PDF output, correct `Content-Type`, empty-data path doesn't
+throw). Build/test artifacts removed before each stage's packaging.
+
+**Known/open (Stages 1–4, combined):** no live MongoDB replica set or
+live browser in this sandbox for any stage — all live-data/visual checks
+noted per-stage as not performable, a standing constraint (not a defect)
+across the whole project. `lib/pdf.js`'s table layout is simple
+(fixed-width columns, ellipsis truncation, no wrapping) — adequate for
+the stage's bar but noted for awareness on long text fields.
+
+**2026-08-25 — Stage 5 complete.**
+
+**Stage 5 — Toast & confirm-dialog infrastructure.** Added `sonner` as a
+new frontend dependency (`frontend/package.json`). New
+`frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
+(context provider) and `useConfirm()` — a hook returning a `confirm(msg,
+options?)` function that resolves a promise `true`/`false` based on the
+user's click, backed by internal state rather than a queue (a second
+call while one is open would replace the pending dialog, which is fine
+since no call site opens two at once). Visually it reuses the app's
+existing fixed-modal Tailwind pattern (`fixed inset-0 bg-black/40 ...`
+overlay, white rounded card, `bg-brand` confirm button, gray cancel
+button) matching `Billing.jsx`'s Add Customer popup and `Users.jsx`'s
+reset-password dialog for consistency — no new visual language
+introduced. `App.jsx`: added `<Toaster richColors position="top-right"
+/>` (sonner) and wrapped the router in `<ConfirmProvider>`, both mounted
+once at the app root, inside `AuthProvider` and around `BrowserRouter`,
+so `useConfirm()` and `toast()` are available from any page without
+per-page setup. No page files were touched beyond this root wiring — no
+`alert()`/`confirm()` call sites were migrated, per the stage's explicit
+scope ("No call sites are touched in this stage" — that's Stage 6).
 
 **Verified:**
-- Frontend: `npm install` + `npm run build` (Vite) — clean build, no
-  errors.
-- `npm test` — all 66 existing backend tests still pass unchanged (this
-  stage made no backend changes; `before`/`after` snapshots already
-  contained everything needed, per the stage's own scope note).
-- Manual check against real audit entries of different action types
-  (create/update/delete, nested array fields like order line items) was
-  not performed — no live Mongo/browser in this sandbox, same constraint
-  the stage's own "Testing/validation" section anticipated. Reviewed by
-  reading the component logic and confirming the flatten/format/diff
-  functions against representative hand-constructed objects (nested
-  objects, arrays, `null`/empty cases) instead.
-- Confirmed via `grep` that no other frontend file renders a full-entry
-  `JSON.stringify` dump; the one remaining `JSON.stringify` call in
-  `AuditLog.jsx` is the single-cell fallback for a nested leaf value.
-
-**Known/open:**
-- No live-data or live-browser verification was possible in this
-  sandbox — same standing constraint as Stages 1–2.
-- `formatFieldValue`'s money/date detection is key-name based (matches
-  the stage's own spec) rather than schema-aware; a field that happens to
-  contain one of those substrings but isn't actually money/a date (none
-  currently exist in the audited models, as far as this review found)
-  would be mis-formatted. Flagging for awareness only, not a known actual
-  case.
-
-**2026-08-25 — Stage 4 complete.**
-
-**Stage 4 — PDF export alongside CSV.** Added `pdfkit` as a new backend
-dependency (`package.json`). New `lib/pdf.js` exports `sendTablePDF(res,
-filenameBase, { title, subtitle, columns, rows })` — streams a landscape
-A4 PDF with a title/subtitle header and a simple table (dark header row,
-one row per record, page breaks handled, "No data for this range." shown
-when `rows` is empty) using the same `{ key, label }` column shape
-`lib/csv.js`'s `toCSV()` already uses, so each route's column list is
-shared between CSV and PDF, not duplicated. `routes/export.js`: kept all
-5 existing routes and their URLs unchanged; added a `format=pdf` query
-param (`?format=pdf`, default remains CSV) via a new shared
-`sendReport(req, res, filenameBase, rows, columns, title, subtitle)`
-helper that picks `sendTablePDF` or the existing `sendCSV` — this keeps
-the file to one send call per route rather than branching inline in each
-of the 5 handlers, per the stage's own "whichever keeps `routes/export.js`
-cleanest" note. `frontend/src/lib/api.js`'s `downloadExport(type, range,
-format)` now takes an optional third `format` arg (`'csv'` default),
-appends `&format=pdf` when requested, and falls back to `.pdf` for the
-downloaded filename if the server didn't send a `Content-Disposition`
-header. `frontend/src/pages/Reports.jsx`: each of the 5 report cards now
-shows two buttons side by side — "Download CSV" (unchanged style) and a
-new outlined "Download PDF" — both independently track their own pending
-state so clicking one doesn't disable the other.
-
-**Verified:**
-- Backend: `npm install` (added `pdfkit`), boot-tested with a real
-  `.env` in a single shell session — server starts cleanly, all 5
-  export routes return `401` unauthenticated for both the CSV path
-  (unchanged) and the new `?format=pdf` path, confirming the routes
-  mount and the format branch doesn't bypass `requireAuth`. No live
-  MongoDB replica set in the sandbox, so the authenticated PDF-with-real-
-  data path was not exercised end-to-end through the route itself.
-- `lib/pdf.js`'s PDF generation was verified directly (bypassing auth/DB,
-  since neither is available here): a standalone script called
-  `sendTablePDF` with representative rows through a throwaway local HTTP
-  server, confirmed `Content-Type: application/pdf`, a non-trivial byte
-  count, and that the output is a structurally valid PDF (`file` command:
-  "PDF document, version 1.3, 1 page(s)") — this exercises the same
-  function the routes call, just without auth/Mongo in the path. Also
-  confirmed the empty-`rows` branch ("No data for this range.") renders
-  without throwing, per the stage's own testing note about a
-  structurally valid empty-data PDF.
-- `npm test` — all 66 existing tests pass unchanged (this stage added no
-  backend logic the test suite covers; `lib/pdf.js` has no dedicated
-  test file, consistent with `lib/csv.js` also having none).
-- Frontend: `npm install` + `npm run build` (Vite) — clean build, no
-  errors.
+- Frontend: `npm install` (added `sonner`) + `npm run build` (Vite) —
+  clean build, no errors.
+- Manual smoke test (per the stage's own testing note): temporarily
+  wired a button into `Dashboard.jsx` that fired a `toast.success()` and
+  then `await`ed `useConfirm()`'s `confirm()`, built successfully with
+  that wiring in place, then reverted `Dashboard.jsx` to its exact prior
+  state (diffed byte-identical against a pre-change backup) before
+  considering the stage done, exactly as the stage describes ("wire one
+  into a single button... then removed before calling this stage done").
+  This confirms both components import, render, and resolve correctly
+  when actually invoked, not just that they compile.
+- `npm test` (backend) — all 66 existing tests pass unchanged; this
+  stage made no backend changes.
 - Test/build artifacts (`node_modules` in both root and `frontend/`,
-  `frontend/dist`, `.env`, `/tmp` scratch files) removed after
-  verification, before packaging.
+  `frontend/dist`, `.env`) removed after verification, before packaging.
 
 **Known/open:**
-- Authenticated, real-data PDF output (actual sales/refund/credit rows,
-  multi-page pagination against a real dataset) was not verified
-  end-to-end — no live MongoDB replica set in this sandbox, same
-  standing constraint as every prior stage. The empty-data and
-  representative-hand-built-rows paths were verified directly against
-  `lib/pdf.js`, per above.
-- `lib/pdf.js`'s table layout is intentionally simple (fixed equal-width
-  columns, no per-column width tuning, no cell wrapping beyond
-  `ellipsis: true`) — adequate for the stage's "formatted table, not a
-  raw data dump" bar, but a report with very long text in a narrow
-  column (e.g. a long refund reason) will truncate with an ellipsis
-  rather than wrap. Not flagged as a defect against this stage's
-  completion criteria, noting for awareness.
-- No manual/live-browser check of the two-button Reports.jsx layout was
-  possible in this sandbox (no live browser), same constraint as prior
-  UI-facing stages.
+- No live-browser check of actual toast animation/positioning or the
+  confirm dialog's real rendered appearance was possible in this
+  sandbox (no live browser) — the smoke test above confirms the logic
+  path (render → user action → promise resolution) via a real build,
+  not pixel-level visual review. Recommend a quick manual glance once
+  merged, consistent with every prior UI-facing stage's same note.
+- `useConfirm()`'s single-pending-dialog design (a second `confirm()`
+  call while one is open replaces rather than queues it) is untested
+  against Stage 6's actual call sites, since none are migrated yet; if
+  Stage 6 finds a spot needing overlapping confirms, that's a Stage 6
+  concern to flag, not a Stage 5 gap as scoped.
+- `ConfirmProvider` and the `<Toaster>` are now permanently mounted at
+  the app root (this is intended — "wire up its provider once at the
+  app root" is Stage 5's own task, not a leftover from the smoke test).

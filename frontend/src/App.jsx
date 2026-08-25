@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
+import { Toaster } from 'sonner';
 import { AuthProvider } from './lib/AuthContext';
+import { ConfirmProvider } from './components/ConfirmDialog';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import { startOfflineSyncWatcher } from './lib/offlineSync';
@@ -27,83 +29,86 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Login />} />
-          <Route
-            path="/dashboard"
-            element={
-              <AdminRoute>
-                <Dashboard />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/billing"
-            element={
-              <ProtectedRoute>
-                <Billing />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/products"
-            element={
-              <ProtectedRoute>
-                <Products />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/customers"
-            element={
-              <ProtectedRoute>
-                <Customers />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/suppliers"
-            element={
-              <ProtectedRoute>
-                <Suppliers />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/orders"
-            element={
-              <ProtectedRoute>
-                <Orders />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/reports"
-            element={
-              <ProtectedRoute>
-                <Reports />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/audit-log"
-            element={
-              <AdminRoute>
-                <AuditLog />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/workers"
-            element={
-              <AdminRoute>
-                <Users />
-              </AdminRoute>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+      <ConfirmProvider>
+        <Toaster richColors position="top-right" />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Login />} />
+            <Route
+              path="/dashboard"
+              element={
+                <AdminRoute>
+                  <Dashboard />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/billing"
+              element={
+                <ProtectedRoute>
+                  <Billing />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/products"
+              element={
+                <ProtectedRoute>
+                  <Products />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/customers"
+              element={
+                <ProtectedRoute>
+                  <Customers />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/suppliers"
+              element={
+                <ProtectedRoute>
+                  <Suppliers />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orders"
+              element={
+                <ProtectedRoute>
+                  <Orders />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reports"
+              element={
+                <ProtectedRoute>
+                  <Reports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit-log"
+              element={
+                <AdminRoute>
+                  <AuditLog />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/workers"
+              element={
+                <AdminRoute>
+                  <Users />
+                </AdminRoute>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+      </ConfirmProvider>
     </AuthProvider>
   );
 }

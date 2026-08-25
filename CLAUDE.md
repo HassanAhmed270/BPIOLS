@@ -66,6 +66,11 @@ Check for an existing helper before creating new logic.
   the first consumer; reuse this model rather than adding another
   ad-hoc counter if a later stage needs one (e.g. Order IDs).
 - Frontend API calls: `frontend/src/lib/api.js`.
+- Toasts/confirms (Stage 5): `sonner`'s `<Toaster>` mounted in `App.jsx`;
+  use `toast()`/`toast.success()`/`toast.error()` anywhere.
+  `frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
+  (mounted in `App.jsx`) and `useConfirm()` — `if (await
+  confirm('Delete this?')) { ... }`. No call sites migrated — Stage 6.
 
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
@@ -89,7 +94,8 @@ doesn't otherwise need to touch.
   existing test is not complete.
 - Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) before
   packaging deliverables.
-- No push credentials exist for this repo. Never claim to have pushed or imply a change is live on GitHub — it isn't until Hassan merges it.
+- No push credentials exist for this repo — never claim a change is
+  pushed/live on GitHub; it isn't until Hassan merges it.
 
 ## End-of-stage requirements
 
@@ -120,8 +126,8 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 - Frontend: React + Vite + Tailwind under `frontend/`. Pages: `Billing.jsx`,
   `Products.jsx`, `Customers.jsx`, `Suppliers.jsx`, `Orders.jsx`,
   `Reports.jsx`, `Dashboard.jsx`, `AuditLog.jsx`, `Users.jsx`, `Login.jsx`.
-  No UI component libraries beyond Tailwind yet — `final.md` Stage 5 adds
-  the first one (`sonner`, for toasts).
+  `sonner` (toasts) and a hand-rolled `ConfirmDialog` are the only UI
+  libs/components beyond Tailwind (Stage 5) — see "Existing conventions".
 - Production backend serves `frontend/dist`.
 - MongoDB **must run as a replica set** because checkout and other
   inventory mutations use multi-document transactions.
@@ -144,13 +150,11 @@ current state of any item flagged as changing under a specific stage):
 
 - Product/order business IDs use `#0000`-style identifiers; do not
   confuse them with Mongo `_id`. Add Product no longer accepts a typed
-  `productId` — `POST /api/product`'s create path always generates the
-  next sequential `#000N` server-side via `nextProductId()`
-  (`routes/products.js`), backed by `models/Counter.js` (deleted IDs
-  never reissued). Update path unchanged (looks up by submitted
-  `productId`). `Products.jsx` has no ID input on Add; Update still
-  shows it disabled/pre-filled. Create response includes the generated
-  `productId`.
+  `productId` — create always generates the next sequential `#000N`
+  server-side via `nextProductId()` (`routes/products.js`), backed by
+  `models/Counter.js` (deleted IDs never reissued). Update path
+  unchanged (looks up by submitted `productId`, ID shown disabled/
+  pre-filled). Create response includes the generated `productId`.
 - Product prices are history arrays; read them through `lib/pricing.js`.
 - Stock availability accounts for `reserved`.
 - Checkout uses persisted `PendingBill` data and server-side price/
@@ -158,10 +162,9 @@ current state of any item flagged as changing under a specific stage):
   sentinel and remain real audited orders without a customer credit
   record.
 - `Product.supplierID` is an optional `Supplier` ObjectId; `NoSupplier`
-  is the self-purchase sentinel. `final.md` Stage 9 removes `NoSupplier`
-  as a selectable option on Supplier Purchase — self-purchase still
-  exists, but only via the dedicated Add Stock/Add Product flows on the
-  Products page.
+  is the self-purchase sentinel. `final.md` Stage 9 removes it as a
+  selectable option on Supplier Purchase — self-purchase still exists,
+  but only via the dedicated Add Stock/Add Product flows.
 - Restocking and checkout use transactions. FIFO stock costing is
   handled through `StockBatch` and `lib/costing.js`. Historically, plain
   Product-form stock additions were left un-batched (no cost input
@@ -171,17 +174,14 @@ current state of any item flagged as changing under a specific stage):
   Update Product has no stock field at all.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
-  `AuditLog.jsx`'s raw JSON dump with a flattened table via new
+  `AuditLog.jsx`'s raw JSON dump with a flattened table via
   `lib/flattenObject.js`. Stage 4 added `?format=pdf` to all 5
-  `routes/export.js` routes (default stays CSV) via a shared
-  `sendReport()` helper → new `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`
-  dependency), reusing each route's existing `{ key, label }` column
-  list. `Reports.jsx` has a CSV + PDF button per report card;
-  `api.js`'s `downloadExport(type, range, format)` gained the `format`
-  arg.
+  `routes/export.js` routes (default CSV) via a shared `sendReport()`
+  helper → `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`), reusing each
+  route's existing `{ key, label }` columns. `Reports.jsx` has a CSV +
+  PDF button per card; `api.js`'s `downloadExport()` gained a `format` arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
-  `Product.category`. `Supplier.supplierName` relies on its existing
-  `unique: true` index.
+  `Product.category`. `Supplier.supplierName` relies on its `unique: true` index.
 - Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
