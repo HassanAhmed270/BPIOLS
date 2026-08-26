@@ -3,16 +3,16 @@
 The `production.md` phase (Stage 1–8) is complete and merged. This repo
 is now in a separate **final-fixes phase**, defined by `final.md`. The
 app remains feature-complete; current work is further correctness/UX/
-workflow fixes identified after production-hardening closed.
+workflow fixes identified after production-hardening closed. All 14
+stages of `final.md` are now complete as of this update.
 
 ## Document authority
 
 - `final.md` — authoritative plan. `CLAUDE.md` — architecture/working
   rules. `final-progress.md` — append-only log for this phase.
-- `production.md` / `production-progress.md` — previous phase's plan/log,
-  complete and historical; do not use its Stage numbering here.
-- `progress.md` — original feature-build's historical log; also not this
-  phase's numbering.
+- `production.md`/`production-progress.md` and `progress.md` — earlier
+  phases' plans/logs, complete and historical; different Stage numbering,
+  do not reuse it here.
 
 Final-fixes stages start at **Stage 1** and follow `final.md` only (three
 independent stage-numbering sequences exist in this repo: this phase,
@@ -23,34 +23,27 @@ independent stage-numbering sequences exist in this repo: this phase,
 1. Clone `https://github.com/HassanAhmed270/BPIOLS.git`, or
    `git fetch origin main && git reset --hard origin/main` if already
    cloned this session. Never trust an earlier session's clone.
-2. Read `final.md`, this `CLAUDE.md`, and `final-progress.md` (if it
-   exists) in full.
+2. Read `final.md`, this file, and `final-progress.md` in full.
 3. Identify the next incomplete `final.md` stage and work only on it.
 
 ## Scope rules
 
 - Work one `final.md` stage at a time, in order — several stages depend
-  on earlier ones (noted per stage in `final.md`; e.g. Stage 6 depends on
-  5, Stage 9 on 7, Stage 13 on 12).
-- Touch only the stage's listed **Affected areas**. If proper completion
-  needs an out-of-scope change, stop and flag it — a small, clearly-
-  necessary addition a stage's own task list implies may proceed but must
-  be called out in `final-progress.md`.
-- An unrelated one-line, obviously-correct fix may be made inline, stated
-  as incidental. Otherwise flag unrelated issues instead of fixing them.
+  on earlier ones (e.g. Stage 6 on 5, Stage 9 on 7, Stage 13 on 12).
+- Touch only the stage's listed **Affected areas**; a small, clearly-
+  necessary addition a stage's own task list implies may proceed but
+  must be flagged in `final-progress.md`.
+- An unrelated one-line, obviously-correct fix may be made inline,
+  stated as incidental. Otherwise flag instead of fixing.
 - Do not refactor or "improve while you're here."
-- If a stage becomes too large, flag it and split rather than push
-  through oversized. Stage 9 did this: **9a** (Add/Deduct Stock,
-  zero-stock auto-disable), **9b** (Loss on Dashboard/Reports), **9c**
-  (hard-delete rework) — all three now done.
-- `final.md`'s "Deferred" section is currently empty — all originally-
-  deferred items are now scoped as Stages 12–14. Newly raised items go
-  there first, then get promoted to a numbered stage.
+- If a stage becomes too large, flag it and split (Stage 9 → 9a/9b/9c).
+- `final.md`'s "Deferred" is empty — all 16 original notebook items are
+  scoped across Stages 1–14, all now complete. Newly raised items go to
+  Deferred first, then get promoted to a numbered stage.
 
 ## Existing conventions
 
 Check for an existing helper before creating new logic.
-
 - Money: `lib/money.js` → `roundMoney()`; frontend mirror at
   `frontend/src/lib/money.js` → `roundMoney()` / `formatMoney()`.
   `formatMoney()` outputs PKR as of Stage 1 (`Rs 1,234.50`, comma
@@ -104,14 +97,11 @@ A stage is not complete until: `final-progress.md` is appended; `CLAUDE.md`
 is updated if architecture/conventions changed; both docs are delivered;
 code is packaged (`git bundle create output.bundle main`, or a `.patch`
 file) with exact pull/merge commands; verified vs. unverified items are
-stated plainly.
-
-Do not begin the next stage until the current stage is complete.
+stated plainly. Do not begin the next stage until the current one is done.
 
 ## Project architecture
 
-BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
-
+BPIOLS is a single-shop MERN POS/billing system for one desktop.
 - Backend: Express + Mongoose at repository root, entry point `main.js`.
 - All domain routes live under `routes/`: `auth.js`, `export.js`,
   `sync.js`, `products.js`, `customers.js`, `billing.js` (incl.
@@ -142,9 +132,7 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`,
-`Counter` (Stage 2), `Loss` (Stage 9). Invariants below (check
-`final.md`/`final-progress.md` for the current state of anything
-flagged as changing under a specific stage):
+`Counter` (Stage 2), `Loss` (Stage 9). Invariants below:
 - Product/order IDs use `#0000`-style identifiers, distinct from Mongo
   `_id`. Add Product generates `#000N` via `nextProductId()` (deleted
   IDs never reissued).
@@ -200,26 +188,38 @@ flagged as changing under a specific stage):
   it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
   Stock `returned_to_supplier` reason adjusts *supplier* credit
   instead — keep the two paths separate.
+- **Order edits — add vs. reduce** (Stage 14): `POST
+  /api/order/:orderID/edit` branches on `action`. No `action`/anything
+  but `'add'` is the original reduction path (`applyLineReduction`,
+  `newQty ≤` existing quantity). `action: 'add'` is `applyLineAddition`
+  — a *new* `productID` not already on the order, added at current
+  selling price via the same `consumeFIFO`/`disableIfDepleted` checkout
+  uses; rejects a `productID` already present (use reduction instead).
+  No discount on an added line. `editHistory.action`: `'edit'|'refund'|
+  'add'`.
+- **Walk-in → customer conversion** (Stage 14): `POST /customer/create`
+  is upsert-style (distinct from `updateCustomer`, which 404s on
+  missing). `POST /api/order/:orderID/convert-customer` reattaches a
+  `WALKIN_CUSTOMER`-sentinel order to an already-created customer,
+  pushing the order onto `Customer.orders`. Frontend calls both in
+  sequence, not combined.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
-  (`/api/users/me/password`, any role); every password write refreshes
+  (`/api/users/me/password`); every password write refreshes
   `passwordChangedAt`. Deleting your own account or the last admin is
-  blocked. `Users.jsx` at `/workers` (admin-only) is the only UI
-  surface; gating reviewed and confirmed sufficient.
+  blocked. `Users.jsx` at `/workers` (admin-only) is the only UI surface.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
   apply customer credit. Sets `Order.offlineOrigin: true` at creation
   (Stage 13, sole writer); `getDashboardSummary` counts it as
-  `offlineOrders`, on `Dashboard.jsx`. Stage 13 also added: a 60s
-  debounced reconnect delay before flushing on `online`
-  (`RECONNECT_DELAY_MS`); an auto-sync-only pub-sub
-  (`subscribeAutoSync`/`isAutoSyncing`) driving `SyncOverlay.jsx`'s
-  blocking overlay (manual "Sync Now" bypasses it); and
-  `verifyOrderExists()` — one independent order-existence check (3
-  attempts, backoff) before trusting a "synced" result, marking
-  `conflict` only on a genuine not-found, else leaving `pending`
-  (commit is idempotent). Commit/transaction/replay logic unchanged.
+  `offlineOrders`, on `Dashboard.jsx`. Stage 13 also added a 60s debounced
+  reconnect delay before flushing (`RECONNECT_DELAY_MS`); an
+  auto-sync-only pub-sub (`subscribeAutoSync`/`isAutoSyncing`) driving
+  `SyncOverlay.jsx` (manual "Sync Now" bypasses it); and
+  `verifyOrderExists()` (3 attempts, backoff) before trusting a "synced"
+  result — `conflict` only on genuine not-found, else `pending` (commit
+  idempotent). Commit/transaction/replay logic unchanged.
 - Draft persistence has two layers in `Billing.jsx` — don't conflate
   them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
   silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
@@ -238,13 +238,13 @@ flagged as changing under a specific stage):
 `/auth/*` → `routes/auth.js`. `/api/export/*`/`/api/sync/*` → optional
 feature-flagged modules. Other `/api`, `/billing`, `/product`,
 `/customer`, `/supplier`, `/dashboard/load` → domain route files. Other
-GET → built React SPA. Unmatched `/api/*`/`/auth/*` → JSON 404.
-Backend authorization is the real security boundary; frontend admin
-gating is UX only.
+GET → built React SPA. Unmatched `/api/*`/`/auth/*` → JSON 404. Backend
+authorization is the real security boundary; frontend admin gating is
+UX only.
 
 ## Working principles
 
 Preserve existing behavior unless the current `final.md` stage explicitly
 requires changing it. Do not add features simply because they appear
 useful. When a change conflicts with historical assumptions, follow the
-current repository plus `final.md`, then document it in `final-progress.md`.
+repository plus `final.md`, then document it in `final-progress.md`.

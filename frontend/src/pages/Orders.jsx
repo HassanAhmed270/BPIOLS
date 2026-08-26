@@ -19,6 +19,9 @@ const statusBadge = {
 };
 
 const PAGE_SIZE = 10;
+// Stage 14 — must match the sentinel in routes/billing.js,
+// routes/orders.js, and Billing.jsx exactly.
+const WALKIN_CUSTOMER = 'Walk-in / Unknown';
 
 export default function Orders() {
   const { isAdmin } = useAuth();
@@ -28,6 +31,7 @@ export default function Orders() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [allProducts, setAllProducts] = useState([]);
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -40,6 +44,8 @@ export default function Orders() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [editForm, setEditForm] = useState({ productID: '', removeQty: '', reason: '' });
+  const [addForm, setAddForm] = useState({ productID: '', quantity: '', reason: '' });
+  const [convertForm, setConvertForm] = useState({ customerName: '', mobileNo: '', email: '', address: '' });
   const [refundForm, setRefundForm] = useState({});
   const [refundReason, setRefundReason] = useState('');
   const loadOrders = async () => {
@@ -60,6 +66,17 @@ export default function Orders() {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, sortBy, sortDir, page]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.getProducts({ limit: 1000 });
+        setAllProducts(data.products || []);
+      } catch (err) {
+        console.error('Failed to load products:', err.message);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -85,6 +102,8 @@ export default function Orders() {
     setDetail(null);
     setDetailLoading(true);
     setEditForm({ productID: '', removeQty: '', reason: '' });
+    setAddForm({ productID: '', quantity: '', reason: '' });
+    setConvertForm({ customerName: '', mobileNo: '', email: '', address: '' });
     setRefundForm({});
     setRefundReason('');
     try {
@@ -149,6 +168,55 @@ export default function Orders() {
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Edit failed: ' + err.message);
+    }
+  };
+
+  const handleAddSubmit = async (e) => {
+    e.preventDefault();
+    if (!addForm.productID) return toast.error('Select a product to add.');
+    const quantity = parseInt(addForm.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return toast.error('Enter a valid quantity.');
+    }
+    if (!addForm.reason.trim()) {
+      return toast.error('A reason is required.');
+    }
+    if (detail.order.products.some((p) => p.productID === addForm.productID)) {
+      return toast.error('This order already has a line for that product — use "Edit a line item" instead.');
+    }
+    try {
+      await api.editOrderItem(expandedID, {
+        action: 'add',
+        productID: addForm.productID,
+        quantity,
+        reason: addForm.reason.trim(),
+      });
+      toast.success('Item added to order.');
+      setAddForm({ productID: '', quantity: '', reason: '' });
+      await refreshDetail(expandedID);
+    } catch (err) {
+      toast.error('Failed to add item: ' + err.message);
+    }
+  };
+
+  const handleConvertSubmit = async (e) => {
+    e.preventDefault();
+    if (!convertForm.customerName.trim()) {
+      return toast.error('Customer name is required.');
+    }
+    try {
+      await api.createCustomer({
+        customerName: convertForm.customerName.trim(),
+        mobileNo: convertForm.mobileNo.trim(),
+        email: convertForm.email.trim(),
+        address: convertForm.address.trim(),
+      });
+      await api.convertWalkInOrder(expandedID, convertForm.customerName.trim());
+      toast.success(`Order attached to ${convertForm.customerName.trim()}.`);
+      setConvertForm({ customerName: '', mobileNo: '', email: '', address: '' });
+      await refreshDetail(expandedID);
+    } catch (err) {
+      toast.error('Failed to convert order: ' + err.message);
     }
   };
 
@@ -366,6 +434,49 @@ export default function Orders() {
 
                                 {isAdmin && detail.order.status !== 'refunded' && (
                                   <div className="space-y-3">
+                                    {detail.order.customerName === WALKIN_CUSTOMER && editWindowOpen(detail.order) && (
+                                      <div className="border border-dashed border-blue-300 rounded-lg p-3 bg-white">
+                                        <h3 className="font-medium mb-2 text-blue-700">Convert to customer</h3>
+                                        <p className="text-xs text-gray-500 mb-2">
+                                          This is a walk-in order. Attach it to a customer so any store credit an
+                                          exchange generates has an account to land in.
+                                        </p>
+                                        <form onSubmit={handleConvertSubmit} className="space-y-2">
+                                          <input
+                                            type="text"
+                                            placeholder="Customer name (required)"
+                                            value={convertForm.customerName}
+                                            onChange={(e) => setConvertForm({ ...convertForm, customerName: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <input
+                                            type="text"
+                                            placeholder="Mobile no. (optional)"
+                                            value={convertForm.mobileNo}
+                                            onChange={(e) => setConvertForm({ ...convertForm, mobileNo: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <input
+                                            type="text"
+                                            placeholder="Email (optional)"
+                                            value={convertForm.email}
+                                            onChange={(e) => setConvertForm({ ...convertForm, email: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <input
+                                            type="text"
+                                            placeholder="Address (optional)"
+                                            value={convertForm.address}
+                                            onChange={(e) => setConvertForm({ ...convertForm, address: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <button type="submit" className="w-full bg-blue-600 text-white rounded py-1.5 text-sm hover:bg-blue-700">
+                                            Convert & Attach
+                                          </button>
+                                        </form>
+                                      </div>
+                                    )}
+
                                     <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-white">
                                       <h3 className="font-medium mb-2">
                                         Edit a line item {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
@@ -402,6 +513,46 @@ export default function Orders() {
                                           />
                                           <button type="submit" className="w-full bg-brand text-white rounded py-1.5 text-sm hover:bg-brand-dark">
                                             Save Edit
+                                          </button>
+                                        </form>
+                                      )}
+                                    </div>
+
+                                    <div className="border border-dashed border-green-300 rounded-lg p-3 bg-white">
+                                      <h3 className="font-medium mb-2 text-green-700">
+                                        Add a new item {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
+                                      </h3>
+                                      {editWindowOpen(detail.order) && (
+                                        <form onSubmit={handleAddSubmit} className="space-y-2">
+                                          <select
+                                            value={addForm.productID}
+                                            onChange={(e) => setAddForm({ ...addForm, productID: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          >
+                                            <option value="">Select product to add</option>
+                                            {allProducts
+                                              .filter((p) => !detail.order.products.some((line) => line.productID === p.productID))
+                                              .map((p) => (
+                                                <option key={p.productID} value={p.productID}>{p.productID} — {p.productName}</option>
+                                              ))}
+                                          </select>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            placeholder="Quantity"
+                                            value={addForm.quantity}
+                                            onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <input
+                                            type="text"
+                                            placeholder="Reason (required)"
+                                            value={addForm.reason}
+                                            onChange={(e) => setAddForm({ ...addForm, reason: e.target.value })}
+                                            className="border rounded px-2 py-1 w-full text-sm"
+                                          />
+                                          <button type="submit" className="w-full bg-green-600 text-white rounded py-1.5 text-sm hover:bg-green-700">
+                                            Add Item
                                           </button>
                                         </form>
                                       )}

@@ -82,7 +82,7 @@ const orderSchema = new Schema({
       originalQty: { type: Number, required: true, min: 0 },
       newQty: { type: Number, required: true, min: 0 },
       reason: { type: String, required: true },
-      action: { type: String, enum: ['edit', 'refund'], required: true },
+      action: { type: String, enum: ['edit', 'refund', 'add'], required: true },
       // Stage 5 — how any overpayment freed up by this change was
       // settled. 'none' when the change didn't free up any overpayment.
       // Edits are always forced to 'credit' (an edit is a correction/

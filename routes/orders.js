@@ -9,17 +9,23 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { AppError } = require('../lib/errors');
 const { roundMoney } = require('../lib/money');
-const { deriveCostSource, restoreConsumption } = require('../lib/costing');
+const { deriveCostSource, restoreConsumption, consumeFIFO, disableIfDepleted } = require('../lib/costing');
+const { getLatestSellingPrice } = require('../lib/pricing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { getDashboardSummary } = require('../lib/reports');
 const { logAudit } = require('../lib/auditLog');
-const { isValidOrderId, isValidDiscount, isValidProductId } = require('../lib/validators');
+const { isValidOrderId, isValidProductId } = require('../lib/validators');
 
 const router = express.Router();
 
 // How long after orderDate an admin can still edit an order's line items
 // (Stage 7). Refunds are NOT subject to this window — only edits are.
 const ORDER_EDIT_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
+
+// Stage 14 — must match the sentinel in routes/billing.js and
+// frontend/src/pages/Billing.jsx exactly; walk-in orders carry this as
+// customerName instead of a real Customer document reference.
+const WALKIN_CUSTOMER = 'Walk-in / Unknown';
 
 // ── Dashboard summary (Stage 9/12) — kept alongside orders since it
 // reads order data via lib/reports.js's getDashboardSummary. No
@@ -173,9 +179,61 @@ async function applyLineReduction(order, productID, newQty, reason, action, edit
   return restoreQty;
 }
 
+// Stage 14 — the reduction-only counterpart above (applyLineReduction)
+// can't add a product an order doesn't already have; this adds a new
+// line during an exchange the same way checkout adds one (current
+// selling price, FIFO cost basis via consumeFIFO), then logs one
+// editHistory entry with action 'add'. Rejects a productID the order
+// already carries a line for — quantity there stays applyLineReduction's
+// job, keeping the two paths from fighting over the same line's fields.
+async function applyLineAddition(order, productID, quantity, reason, editedBy, session) {
+  if (order.products.some((p) => p.productID === productID)) {
+    throw new AppError(400, `Order ${order.orderID} already has a line item for ${productID} — reduce or remove it via edit instead of adding it again.`);
+  }
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new AppError(400, `Invalid quantity for ${productID}.`);
+  }
+
+  const product = await Product.findOne({ productID }).session(session);
+  if (!product) {
+    throw new AppError(400, `Product ${productID} does not exist.`);
+  }
+
+  const currentPrice = getLatestSellingPrice(product);
+  const amount = roundMoney(currentPrice * quantity);
+
+  const updated = await Product.findOneAndUpdate(
+    { productID, quantity: { $gte: quantity } },
+    { $inc: { quantity: -quantity } },
+    { session, new: true }
+  );
+  if (!updated) {
+    throw new AppError(409, `Not enough stock for ${productID} to add ${quantity} unit(s).`);
+  }
+  await disableIfDepleted(updated, session);
+
+  const fifo = await consumeFIFO(productID, quantity, session);
+
+  order.products.push({
+    productID,
+    quantity,
+    amount,
+    discount: 0,
+    discountType: 'none',
+    discountAmount: 0,
+    costAmount: fifo.costAmount,
+    costQuantity: fifo.costQuantity,
+    costSource: deriveCostSource(fifo.costQuantity, quantity),
+    batchConsumption: fifo.consumption,
+  });
+
+  order.editHistory.push({ editedBy, editedAt: new Date(), productID, originalQty: 0, newQty: quantity, reason, action: 'add' });
+}
+
 router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { productID, newQty, reason } = req.body;
+  const { productID, newQty, reason, action, quantity } = req.body;
   const { orderID } = req.params;
+  const isAdd = action === 'add';
 
   if (!isValidOrderId(orderID)) {
     return res.status(400).json({ success: false, message: 'Invalid order ID.' });
@@ -186,9 +244,17 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
   if (!reason || !reason.trim()) {
     return res.status(400).json({ success: false, message: 'A reason is required for every edit.' });
   }
-  const qty = parseInt(newQty);
-  if (!Number.isInteger(qty) || qty < 0) {
-    return res.status(400).json({ success: false, message: 'Invalid new quantity.' });
+  let qty;
+  if (isAdd) {
+    qty = parseInt(quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid quantity to add.' });
+    }
+  } else {
+    qty = parseInt(newQty);
+    if (!Number.isInteger(qty) || qty < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid new quantity.' });
+    }
   }
 
   const session = await mongoose.startSession();
@@ -209,10 +275,15 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
 
       const beforeOrder = order.toObject();
       const historyStartIdx = order.editHistory.length;
-      await applyLineReduction(order, productID, qty, reason.trim(), 'edit', req.user.username, session);
+      if (isAdd) {
+        await applyLineAddition(order, productID, qty, reason.trim(), req.user.username, session);
+      } else {
+        await applyLineReduction(order, productID, qty, reason.trim(), 'edit', req.user.username, session);
+      }
       // Stage 5: an edit is a correction/exchange, not a cash-handling
       // event at the register — any overpayment it frees up is always
-      // converted to store credit, never handed back as cash.
+      // converted to store credit, never handed back as cash. Adding a
+      // line only ever raises the total, so this is 0 for an 'add'.
       const creditGenerated = recomputeOrderTotals(order);
       for (let i = historyStartIdx; i < order.editHistory.length; i++) {
         order.editHistory[i].settlement = creditGenerated > 0 ? 'credit' : 'none';
@@ -222,7 +293,8 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
 
       // Keep the customer's embedded order summary (Stage 5) in sync,
       // and credit the customer's running balance if this edit freed up
-      // an overpayment.
+      // an overpayment. No-ops harmlessly for a walk-in order, which has
+      // no matching Customer document to update.
       const customerUpdate = {
         $set: {
           'orders.$.totalAmount': order.totalAmount,
@@ -255,6 +327,82 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
   }
 
   res.status(200).json({ success: true, message: 'Order updated.', order: updatedOrder });
+}));
+
+// Stage 14 — converts a walk-in order (customerName === WALKIN_CUSTOMER)
+// to a real customer inline, so credit an exchange on that order
+// generates has somewhere to land. Expects the Customer record to
+// already exist (create it first via POST /customer/create); this route
+// only reattaches the order.
+router.post('/api/order/:orderID/convert-customer', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { orderID } = req.params;
+  let { customerName } = req.body;
+
+  if (!isValidOrderId(orderID)) {
+    return res.status(400).json({ success: false, message: 'Invalid order ID.' });
+  }
+  if (!customerName || !customerName.trim()) {
+    return res.status(400).json({ success: false, message: 'Customer name is required.' });
+  }
+  customerName = customerName.trim().replace(/\s+/g, ' ');
+
+  const session = await mongoose.startSession();
+  let updatedOrder;
+  try {
+    await session.withTransaction(async () => {
+      const order = await Order.findOne({ orderID }).session(session);
+      if (!order) {
+        throw new AppError(404, 'Order not found.');
+      }
+      if (order.customerName !== WALKIN_CUSTOMER) {
+        throw new AppError(400, 'This order is already attached to a customer.');
+      }
+
+      const customer = await Customer.findOne({ customerName }).session(session);
+      if (!customer) {
+        throw new AppError(400, `Customer "${customerName}" does not exist — create it first.`);
+      }
+
+      const beforeOrder = order.toObject();
+      order.customerName = customerName;
+      await order.save({ session });
+
+      await Customer.updateOne(
+        { customerName },
+        {
+          $push: {
+            orders: {
+              orderNo: order.orderID,
+              orderDate: order.orderDate,
+              totalAmount: order.totalAmount,
+              amountPaid: order.amountPaid,
+              balanceDue: order.balanceDue,
+              creditApplied: order.creditApplied,
+            },
+          },
+        },
+        { session }
+      );
+
+      await logAudit(
+        {
+          action: 'order.customer_attached',
+          actor: { username: req.user.username, role: req.user.role },
+          targetType: 'order',
+          targetId: order.orderID,
+          before: beforeOrder,
+          after: order.toObject(),
+        },
+        session
+      );
+
+      updatedOrder = order;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  res.status(200).json({ success: true, message: 'Order attached to customer.', order: updatedOrder });
 }));
 
 router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandler(async (req, res) => {

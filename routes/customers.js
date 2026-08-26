@@ -45,6 +45,50 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
   res.json({ success: true, customers, total, page, limit });
 }));
 
+// Stage 14 — upsert-style creation, distinct from updateCustomer (which
+// 404s if the customer doesn't exist). Needed so a walk-in order can be
+// converted to a real customer inline during an exchange without a
+// separate "create customer first" round trip elsewhere in the app.
+// If a customer with this name already exists, it's returned as-is
+// (existing details are never silently overwritten here).
+router.post('/customer/create', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  let { customerName, mobileNo, emergencyMobile, email, address } = req.body;
+
+  if (!customerName || customerName.trim() === '') {
+    return res.status(400).json({ success: false, message: 'Customer name is required' });
+  }
+
+  customerName = customerName.trim().replace(/\s+/g, ' ');
+  mobileNo = mobileNo ? mobileNo.trim() : '';
+  emergencyMobile = emergencyMobile ? emergencyMobile.trim() : '';
+  email = email ? email.trim() : '';
+  address = address ? address.trim() : '';
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ success: false, message: 'That email address doesn\'t look right.' });
+  }
+  if (!isValidPhone(mobileNo) || !isValidPhone(emergencyMobile)) {
+    return res.status(400).json({ success: false, message: 'That phone number doesn\'t look right.' });
+  }
+
+  let customer = await Customer.findOne({ customerName });
+  let created = false;
+  if (!customer) {
+    customer = await Customer.create({ customerName, mobileNo, emergencyMobile, email, address });
+    created = true;
+    await logAudit({
+      action: 'customer.created',
+      actor: { username: req.user.username, role: req.user.role },
+      targetType: 'customer',
+      targetId: customerName,
+      before: null,
+      after: customer.toObject(),
+    });
+  }
+
+  res.status(created ? 201 : 200).json({ success: true, created, customer });
+}));
+
 router.post('/customer/updateCustomer', requireAuth, asyncHandler(async (req, res) => {
   let { customerName, mobileNo, emergencyMobile, email, address } = req.body;
 
