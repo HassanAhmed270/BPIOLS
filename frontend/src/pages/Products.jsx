@@ -378,8 +378,8 @@ export default function Products() {
 
               {isAdmin && (mode === 'add' || mode === 'update') && (
               <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">
-                  {mode === 'add' ? 'Add New Product' : 'Update Product'}
+                <h2 className="text-2xl flex justify-center text-blue-600 font-bold mb-4">
+                  {mode === 'add' ? 'New Product' : 'Update Product'}
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4 w-full">
                   {mode === 'update' && (
@@ -463,7 +463,7 @@ export default function Products() {
                       onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
                       className="border rounded px-3 py-2 w-full"
                     >
-                      <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
+                      <option value={NO_SUPPLIER}>Buy Myself / Self Purchased</option>
                       {allSuppliers.map((s) => (
                         <option key={s._id} value={s._id}>{s.supplierName}</option>
                       ))}
@@ -483,7 +483,7 @@ export default function Products() {
                   </div>
 
                   <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-green-700">
                       {mode === 'add' ? 'Add Product' : 'Update Product'}
                     </button>
                     {mode === 'update' && (
@@ -529,7 +529,7 @@ export default function Products() {
                     <p className="text-xs text-gray-500 mt-1">Always self-purchased — for a real supplier restock, use Suppliers &gt; Record a Purchase instead.</p>
                   </div>
                   <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Add Stock</button>
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-green-700">Add Stock</button>
                     <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
                   </div>
                 </form>
