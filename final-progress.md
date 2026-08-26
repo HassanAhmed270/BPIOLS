@@ -83,31 +83,14 @@ deduct to zero with "Returned to Supplier" → confirm supplier credit,
 no Loss → delete with a reason → confirm permanent removal; separately,
 attempt delete on a product with remaining stock → confirm blocked.
 
-**2026-08-26 — Stage 10 complete.**
-
-**Stage 10 — UI polish: Products form, Billing preview.** Frontend-only,
-no backend changes.
-
-`Products.jsx`: Add/Update form header and submit button now match
-Customers.jsx's convention exactly — `text-blue-600`/`bg-blue-600` for
-Add mode, `text-yellow-600`/`bg-yellow-600` for Update mode (previously
-both used green unconditionally). Form restructured into a 2-column
-grid: Name+Category paired; Selling Price paired with Cost (Add mode) or
-Supplier (Update mode, since Update has no Cost field post-Stage-9); Add
-mode gets an extra Stock+Supplier row. Low Stock Threshold stays a
-full-width row (has explanatory text beneath it). Supplier field is
-still present in both modes, just relocated into the grid rather than
-removed — Stage 7's dropdown-retention decision is unaffected by this
-stage.
-
-`Billing.jsx`: on-screen cart/bill preview's 8-column table
-(`#`/Code/Product/Price/Qty/Total/Save/Net) replaced with a stacked
-receipt-line layout — each item now renders as two lines (`#1 #0001
-ProductName` then `1 × Rs 500.00 -10% = Rs 450.00`), click-to-remove
-behavior preserved on the whole row. Only this on-screen summary
-changed; `printReceiptFor` and the Special Bill markup
-(`showSpecialPreview` block) are untouched, confirmed separate code
-paths before editing.
+**Stage 10 complete (2026-08-26, condensed; see correction below).**
+UI polish, frontend-only. `Products.jsx`: Add/Update form colors match
+Customers.jsx (blue=Add, yellow=Update, was green); restructured into a
+2-column grid (Name+Category, Selling Price+Cost/Supplier, Add mode
+gets Stock+Supplier row, Threshold full-width). `Billing.jsx`:
+on-screen cart preview's 8-column table replaced with stacked
+receipt-lines (`#1 #0001 ProductName` / `1 × Rs 500.00 -10% = Rs
+450.00`); `printReceiptFor`/Special Bill untouched.
 
 **Verified:**
 - `npm install` + `npm run build` (Vite) — clean, no errors.
@@ -193,3 +176,67 @@ persists unchanged after an Update Product save" behavior is
 code-reviewed only, not exercised end-to-end. Recommend confirming
 once merged: update a product's name/price only, then check its
 Supplier value is exactly what it was before the edit.
+
+**2026-08-26 — Stage 12 complete.**
+
+**Stage 12 — Offline: continuous draft persistence.**
+`frontend/src/lib/offlineQueue.js` and `frontend/src/pages/Billing.jsx`
+only, no backend changes. Added a new IndexedDB object store, `drafts`
+(`pos-offline-queue` DB, `DB_VERSION` bumped 1→2, upgrade path adds it
+alongside the existing `sales` store without touching that store's
+data), keyed by a single fixed record (`id: 'current'`) since this is a
+single-shop/single-cart app — `saveLocalDraft()`/`getLocalDraft()`/
+`clearLocalDraft()` exported. `withStore()` was generalized to take a
+store name param (previously hardcoded to `sales`) so both stores share
+the same open/transaction plumbing; every existing call site updated
+accordingly, `sales`-store behavior otherwise unchanged.
+
+`Billing.jsx`: a new, non-debounced `useEffect` writes
+`{ billingItems, customer, billId, paid, paymentMethod }` to
+`saveLocalDraft()` on every change to any of those (item add/remove,
+qty/discount edit, customer switch, amount-paid edit all funnel through
+one or more of these state values) — separate from and in addition to
+the existing 7s-debounced *server*-side autosave (`saveDraftNow`/
+`api.saveDraft`), which still runs unchanged but silently fails offline
+(caught, logged, not surfaced) exactly as before. On mount, a local
+draft is checked *first*, ahead of the existing server-draft check —
+same resume/discard confirm-dialog pattern, reusing `useConfirm()`. If
+a local draft exists (with or without connectivity) the person is
+offered to resume it and the server-draft check is skipped entirely for
+that load; if none exists, the pre-existing server-draft flow runs
+exactly as before. `resetBill()` — called after a successful live
+checkout, a successful offline-queued checkout (`enqueueSale` path),
+and Cancel — now also clears the local draft, so it never resurfaces
+after the cart it described has actually been queued/completed/
+discarded. Per `final.md`: stays local until "Generate Bill" is
+pressed even if connectivity returns mid-edit — no automatic handoff to
+the live `PendingBill` flow; that handoff (`saveDraftNow`/
+`api.saveOrder`) is unchanged and still only fires at that explicit
+button press.
+
+**Verified:**
+- `npm install` + `npm run build` (Vite, both root and `frontend/`) —
+  clean, no errors.
+- `npx oxlint frontend/src/pages/Billing.jsx frontend/src/lib/offlineQueue.js`
+  — 0 warnings, 0 errors.
+- Backend boot-tested with a real `.env` (no backend files touched this
+  stage; confirmed server still starts cleanly, `GET /api/products` and
+  `POST /billing/orderDetails` both correctly 401 with no token).
+- `npm test` — all 66 existing tests pass unchanged.
+- Build/test artifacts (`node_modules` in both root and `frontend/`,
+  `frontend/dist`, `.env`) removed after verification, before packaging.
+
+**Known/open:**
+- No live browser/IndexedDB in this sandbox — the actual store
+  creation on upgrade, restore-on-reload, and clear-on-finalize
+  behavior are code-reviewed only, not exercised end-to-end (same
+  standing constraint as Stages 5–11's UI work). Recommend a manual
+  check once merged: build a cart, reload before pressing "Generate
+  Bill" (both online and with devtools set to Offline), confirm the
+  resume prompt restores it; confirm the prompt does *not* reappear
+  after finalizing or cancelling a bill.
+- Existing-user note: the DB version bump (1→2) means a returning
+  user's browser runs the `onupgradeneeded` path once, automatically,
+  the next time the app opens IndexedDB — no migration of existing
+  `sales` entries is needed or performed, since that store's schema is
+  untouched.

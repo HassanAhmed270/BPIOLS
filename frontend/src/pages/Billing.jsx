@@ -6,7 +6,7 @@ import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { roundMoney, formatMoney } from '../lib/money';
 import { printReceipt } from '../lib/print';
-import { isOfflineSyncEnabled, enqueueSale } from '../lib/offlineQueue';
+import { isOfflineSyncEnabled, enqueueSale, saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/offlineQueue';
 import { isNetworkError, flushQueue } from '../lib/offlineSync';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -143,6 +143,31 @@ export default function Billing() {
         setError(err.message || 'Failed to load billing data');
       }
 
+      // Stage 12 — a draft persisted purely on this device (survives a
+      // reload even while offline, when the server-side draft below can't
+      // be reached at all). Checked first: if one exists, it's the most
+      // recent state of the cart the person was building, regardless of
+      // whether it ever made it to the server.
+      try {
+        const local = await getLocalDraft();
+        if (local && Object.keys(local.billingItems || {}).length > 0) {
+          const resume = await confirm(`You have an unfinished bill with ${Object.keys(local.billingItems).length} item(s) from earlier. Resume it?`);
+          if (resume) {
+            setBillingItems(local.billingItems);
+            setItemNo(Math.max(0, ...Object.keys(local.billingItems).map(Number)));
+            setCustomer(local.customer || 'unknown');
+            setBillId(local.billId || null);
+            setPaid(local.paid || '');
+            setPaymentMethod(local.paymentMethod || 'cash');
+          } else {
+            await clearLocalDraft();
+          }
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to check for a local draft bill:', err.message);
+      }
+
       // Offer to resume an unfinished bill from a previous session/crash.
       // The stock for these items is already reserved server-side (it was
       // held when they were originally added) — resuming just rehydrates
@@ -193,6 +218,17 @@ export default function Billing() {
     }, 7000);
     return () => clearTimeout(draftSaveTimeout.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingItems, customer, billId, paid, paymentMethod]);
+
+  // Stage 12 — local draft persistence, on every meaningful change, not
+  // debounced. This is what actually survives a reload mid-edit while
+  // offline (the server autosave above just silently fails offline).
+  // Stays local until "Generate Bill" is pressed — no handoff to the
+  // server-side PendingBill flow just because connectivity returns.
+  useEffect(() => {
+    if (Object.keys(billingItems).length === 0) return;
+    saveLocalDraft({ billingItems, customer, billId, paid, paymentMethod })
+      .catch((err) => console.error('Local draft save failed:', err.message));
   }, [billingItems, customer, billId, paid, paymentMethod]);
 
   // Best-effort release of any still-held reservations when the person
@@ -455,6 +491,7 @@ export default function Billing() {
     setPaid('');
     setPaymentMethod('cash');
     setView('add');
+    clearLocalDraft().catch((err) => console.error('Failed to clear local draft:', err.message));
   };
 
   const handleCancel = async () => {

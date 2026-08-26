@@ -151,53 +151,45 @@ flagged as changing under a specific stage):
   from Mongo `_id`. Add Product generates `#000N` server-side via
   `nextProductId()`/`models/Counter.js` (deleted IDs never reissued).
 - Product prices are history arrays; read them through `lib/pricing.js`.
-- Stock availability accounts for `reserved`.
-- Checkout uses persisted `PendingBill` data and server-side price/
-  discount verification. Walk-in sales use the `Walk-in / Unknown`
-  sentinel and remain real audited orders without a customer credit
-  record.
+  Stock availability accounts for `reserved`. Checkout uses persisted
+  `PendingBill` data and server-side price/discount verification.
+  Walk-in sales use the `Walk-in / Unknown` sentinel and remain real
+  audited orders without a customer credit record.
 - `Product.supplierID` is an optional `Supplier` ObjectId; `NoSupplier`
-  is the self-purchase sentinel. Set only at product creation (Add
-  Product) — Stage 9a removed it as a selectable option on Supplier
-  Purchase (`POST /supplier/purchase` now always requires a real
-  supplier); Stage 10 confirmed Update Product must never change it.
+  is the self-purchase sentinel, set only at product creation. Stage 9a
+  removed it from Supplier Purchase (`POST /supplier/purchase` now
+  always requires a real supplier); Update Product never changes it.
 - Restocking/checkout use transactions; FIFO costing via `StockBatch`/
   `lib/costing.js`. Stage 7 made Cost required on Add Product's create
-  path. Stage 9a: Update Product has no stock field (name/price/
-  category/supplier/threshold only); restocking goes through **Add
-  Stock** (`POST /api/product/:productID/add-stock`, admin-only,
-  cost+quantity, always self-buying/`NoSupplier`). **Deduct Stock**
-  (`.../deduct-stock`) removes stock with a required reason
+  path. Stage 9a: Update Product has no stock field; restocking goes
+  through **Add Stock** (`POST /api/product/:productID/add-stock`,
+  admin-only, cost+quantity, always self-buying/`NoSupplier`). **Deduct
+  Stock** (`.../deduct-stock`) removes stock with a required reason
   (`expired`/`returned_to_supplier`/`damaged_lost`/`discontinued`) +
-  note, drawing down FIFO batches via `consumeFIFO()`. `returned_to_
-  supplier` credits the chosen supplier's `creditBalance`, no `Loss`;
-  every other reason writes one `Loss` doc. The dead `POST
-  /billing/update` was removed here (unreachable from any frontend call).
+  note, via `consumeFIFO()`. `returned_to_supplier` credits the
+  supplier's `creditBalance`, no `Loss`; every other reason writes one
+  `Loss` doc.
 - **Zero-stock auto-disable** (Stage 9a): `lib/costing.js`'s
   `disableIfDepleted()` sets `Product.disabled` true the instant
-  `quantity` hits 0 — called after checkout, offline sync, and Deduct
-  Stock decrements. Only Add Stock clears it. Disabled products stay
-  visible (greyed out) but `POST /billing/reserve` won't reserve one.
+  `quantity` hits 0 (checkout, offline sync, Deduct Stock). Only Add
+  Stock clears it. Disabled products stay visible (greyed out) but
+  `POST /billing/reserve` won't reserve one.
 - **Hard delete** (Stage 9c): `DELETE /product/:productID` requires
-  `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`
-  (deduct remaining stock first); reason/note is an audit annotation
-  only — no Loss/credit side effects fire here.
-- **UI polish** (Stage 10, corrected): Products form matches
-  Customers.jsx's color convention (blue=Add, yellow=Update), 2-column
-  grid. Supplier is Add-mode only — Update Product never touches
-  `supplierID`. Billing's on-screen cart preview (not
-  `printReceiptFor`/Special Bill) is stacked receipt-lines, with a
-  "Customer Balance" line (`totalBalanceDue - creditBalance`, pre-sale,
-  Stage 11) at its bottom.
+  `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`;
+  reason/note is an audit annotation only, no Loss/credit side effects.
+- **UI polish** (Stage 10, corrected): Products form uses blue=Add/
+  yellow=Update, 2-column grid; Supplier is Add-mode only. Billing's
+  on-screen cart preview (not `printReceiptFor`/Special Bill) is
+  stacked receipt-lines, with a "Customer Balance" line
+  (`totalBalanceDue - creditBalance`, pre-sale, Stage 11) at bottom.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table
   (`lib/flattenObject.js`). Stage 4 added `?format=pdf` to every
-  `routes/export.js` route (default CSV) via a shared `sendReport()` →
-  `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`), reusing each route's
-  `{ key, label }` columns. Stage 9b added a 6th route,
-  `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the cards
-  generically; `api.js`'s `downloadExport()` takes a `format` arg.
+  `routes/export.js` route (default CSV) via `lib/pdf.js`'s
+  `sendTablePDF()` (`pdfkit`). Stage 9b added a 6th route,
+  `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the
+  cards generically.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on `unique: true`.- Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
@@ -224,8 +216,16 @@ flagged as changing under a specific stage):
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable (Stage 9a's `disableIfDepleted()`) — keep in
-  sync if either changes. Does not apply customer credit. `final.md`
-  Stages 12–13 (pending) add offline-queue UX only, not commit logic.
+  sync if either changes. Does not apply customer credit. Stage 13
+  (pending) adds sync-reliability/dashboard-visibility UX only, not
+  commit logic.
+- Draft persistence has two layers in `Billing.jsx` — don't conflate
+  them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
+  silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
+  same DB as `sales`, `DB_VERSION` 2, `saveLocalDraft`/`getLocalDraft`/
+  `clearLocalDraft`) writes on every cart change, not debounced — what
+  survives an offline reload. Local draft checked first on mount; both
+  cleared via `resetBill()`.
 - `POST /product/undo` validates `productId` with `isValidProductId()`
   the same way `POST /api/product`'s update path does.
 - `loginLimiter` (`middleware/rateLimit.js`): `max: 20`/15min,
