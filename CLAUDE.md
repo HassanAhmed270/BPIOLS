@@ -143,8 +143,8 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
   changes a password must refresh `passwordChangedAt`.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
-`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2), `Loss` (Stage 9 — write-offs, surfaced on Dashboard/Reports).
+`PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`,
+`Counter` (Stage 2), `Loss` (Stage 9).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
@@ -182,10 +182,11 @@ current state of any item flagged as changing under a specific stage):
   `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`
   (deduct remaining stock first); reason/note is an audit annotation
   only — no Loss/credit side effects fire here.
-- **UI polish** (Stage 10): Add/Update Product form matches
-  Customers.jsx's color convention (blue=Add, yellow=Update), 2-column
-  grid. Billing's on-screen cart preview (not `printReceiptFor`/Special
-  Bill) is stacked receipt-lines, not a table.
+- **UI polish** (Stage 10): Products form matches Customers.jsx's color
+  convention (blue=Add, yellow=Update), 2-column grid. Billing's
+  on-screen cart preview (not `printReceiptFor`/Special Bill) is
+  stacked receipt-lines. Stage 11 added a "Customer Balance" line
+  (`totalBalanceDue - creditBalance`, pre-sale) at its bottom.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table
@@ -196,8 +197,7 @@ current state of any item flagged as changing under a specific stage):
   `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the cards
   generically; `api.js`'s `downloadExport()` takes a `format` arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
-  `Product.category`. `Supplier.supplierName` relies on `unique: true`.
-- Customer store credit: `Customer.creditBalance` mirrors
+  `Product.category`. `Supplier.supplierName` relies on `unique: true`.- Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
   overpayment as credit; a **refund** takes an explicit

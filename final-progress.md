@@ -129,3 +129,35 @@ paths before editing.
   the Billing preview (with a discounted item) once merged.
 - Customers/Suppliers pages needed no change per `final.md` (already
   confirmed good in earlier discussion) — untouched this stage.
+
+**2026-08-26 — Stage 11 complete.**
+
+**Stage 11 — Bill preview: customer balance.** `Billing.jsx` only, no
+backend changes — `GET /api/customers` already returns
+`totalBalanceDue` per customer (`routes/customers.js`). Added
+`totalBalanceDue` to what `customerDirectory` stores per customer
+(alongside the existing `creditBalance`). A "Customer Balance" line now
+renders at the bottom of the on-screen bill preview, after Grand
+Total/Paid/Change, whenever a real customer (not walk-in) is selected —
+computed as `totalBalanceDue - creditBalance` (positive = owes,
+negative = in credit, labeled accordingly), reflecting the customer's
+state *before* this sale, separate from the bill currently being built.
+
+**Verified:**
+- `npm install` + `npm run build` (Vite) — clean, no errors.
+- `npx oxlint frontend/src/pages/Billing.jsx` — 0 warnings, 0 errors.
+- Backend boot-tested with a real `.env` (no backend files touched this
+  stage; confirmed server still starts cleanly, `GET /api/customers` and
+  `POST /billing/orderDetails` both correctly 401 "Login required." with
+  no token).
+- `npm test` — all 66 existing tests pass unchanged.
+- Build/test artifacts (`node_modules` in both root and `frontend/`,
+  `frontend/dist`, `.env`) removed after verification, before packaging.
+
+**Known/open:**
+- No live browser in this sandbox — the actual on-screen placement and
+  the owes/credit sign handling were not visually verified against a
+  real customer with both a balance due and a credit balance
+  simultaneously, only confirmed via code review and a clean build.
+  Recommend a manual check once merged: a customer with an outstanding
+  balance, a customer in credit, and walk-in (should show nothing).

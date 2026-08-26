@@ -134,6 +134,7 @@ export default function Billing() {
                 // Stage 5 — store credit auto-applies at checkout; shown
                 // here so the cashier isn't surprised by the total.
                 creditBalance: row.creditBalance || 0,
+                totalBalanceDue: row.totalBalanceDue || 0,
               }]))
             );
           }),
@@ -938,6 +939,19 @@ export default function Billing() {
                     <span>{balance < 0 ? 'Balance Due (Credit)' : 'Change'}</span>
                     <span>{formatMoney(Math.abs(balance))}</span>
                   </div>
+                  {customer !== 'unknown' && customerDirectory[customer] && (
+                    (() => {
+                      const preSaleBalance = roundMoney(
+                        (customerDirectory[customer].totalBalanceDue || 0) - (customerDirectory[customer].creditBalance || 0)
+                      );
+                      return (
+                        <div className={`flex justify-between text-sm font-semibold mt-1 pt-2 border-t ${preSaleBalance > 0 ? 'text-red-600' : preSaleBalance < 0 ? 'text-green-700' : 'text-gray-600'}`}>
+                          <span>Customer Balance</span>
+                          <span>{formatMoney(preSaleBalance)}{preSaleBalance < 0 ? ' (in credit)' : preSaleBalance > 0 ? ' (owes)' : ''}</span>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
 
                 <button onClick={() => handleGenerateBill(false)} className="w-full py-2 bg-brand text-white rounded-lg shadow hover:bg-blue-700">
