@@ -30,58 +30,32 @@ build` clean, `oxlint` 0 errors. No live DB/browser in sandbox for any
 stage — standing constraint, not a defect.
 
 **Stage 7 complete (2026-08-25, condensed).** Add Product's create path
-now requires `cost`; positive initial stock creates a matching
+requires `cost`; positive initial stock creates a matching
 `NoSupplier`-tagged `StockBatch` via shared `createBatch()`/
-`generateUniquePurchaseId()` (extracted to `lib/costing.js`, now shared
-by `routes/suppliers.js` too). `Products.jsx`: required Cost input,
-Add mode only. Incidental one-line fix: `routes/suppliers.js` was
-missing its `mongoose` import (pre-existing bug). Flagged interpretation
-(confirmed): Add Product's pre-existing Supplier dropdown — a separate
-declarative field, shared with Update — was left in place; only the
-cost/batch path is always `NoSupplier`-tagged. Verified: boot-tested,
-`npm test` 66/66, `npm run build` clean, `oxlint` 0 errors.
+`generateUniquePurchaseId()` (extracted to `lib/costing.js`, shared
+by `routes/suppliers.js`). Incidental one-line fix: `routes/suppliers.js`
+was missing its `mongoose` import (pre-existing bug). Verified:
+boot-tested, `npm test` 66/66, `npm run build` clean, `oxlint` 0 errors.
 
 **Stage 8 complete (2026-08-25, condensed).** `Billing.jsx` only, no
-backend changes — `costPrice` already reached the frontend via `GET
-/api/products`. Selected product's cost now renders next to selling
-price in the item-entry form, gated `isAdmin`. Verified: `npm run build`
-clean, `oxlint` 0 errors, boot-tested, `npm test` 66/66.
+backend changes. Selected product's cost renders next to selling price
+in the item-entry form, gated `isAdmin`. Verified as above.
 
-**Stage 9 complete (2026-08-25, split 9a/9b/9c — flagged, confirmed,
-per `final.md`'s own suggestion).**
-- **9a** — Add Stock + Deduct Stock actions, zero-stock auto-disable.
-  `models/Product.js` gained `disabled`; new `models/Loss.js`.
-  `lib/costing.js`'s new `disableIfDepleted()` wired into checkout
-  (`routes/billing.js`) and offline sync (`lib/offlineSync.js`) — both
-  are genuine sale paths that can zero stock, flagged as a necessary
-  small addition beyond the stage's listed areas. `routes/products.js`:
-  Update Product no longer touches `quantity`; new
-  `POST /api/product/:productID/add-stock` and `.../deduct-stock`
-  (reason-coded: `expired`/`returned_to_supplier`/`damaged_lost`/
-  `discontinued` + note; `returned_to_supplier` credits a supplier via
-  FIFO-recovered cost instead of writing a `Loss`). `routes/suppliers.js`:
-  `/supplier/purchase` now always requires a real supplier. Incidental:
-  removed the dead, unreachable `POST /billing/update`.
-- **9b** — Loss surfaced on Dashboard (`lib/reports.js`'s
-  `getDashboardSummary`) + a new 6th Reports export
-  (`GET /api/export/losses`).
-- **9c** — hard-delete rework. `DELETE /product/:productID` now requires
-  `{reason, note}` (shared `DEDUCT_REASONS`), 400s if `quantity > 0`;
-  otherwise the same permanent delete, reason/note folded into the audit
-  log as an annotation only. Frontend gained a Delete Product panel
-  mirroring Add/Deduct Stock's pattern.
-
-Verified (9a–9c): `node -c`/`oxlint` 0 errors throughout; `npm test`
-66/66 after every sub-stage; `npm run build` clean after every
-sub-stage; boot-tested after each sub-stage. Known/open: no live Mongo
-replica set or browser in sandbox — FIFO math, credit increments, Loss
-writes, auto-disable/re-enable, and the new UI are code-reviewed only,
-not end-to-end verified. Recommended manual flow once merged: create a
-product → deduct all stock (any reason) → confirm disabled + Loss (if
-not "Returned to Supplier") → re-Add Stock → confirm re-enabled →
-deduct to zero with "Returned to Supplier" → confirm supplier credit,
-no Loss → delete with a reason → confirm permanent removal; separately,
-attempt delete on a product with remaining stock → confirm blocked.
+**Stage 9 complete (2026-08-25, split 9a/9b/9c per `final.md`'s own
+suggestion).** 9a: Add Stock + Deduct Stock actions
+(`POST /api/product/:productID/add-stock`/`.../deduct-stock`,
+reason-coded), zero-stock auto-disable (`Product.disabled`,
+`lib/costing.js`'s `disableIfDepleted()`, wired into checkout and
+offline sync — flagged, necessary), `returned_to_supplier` credits a
+supplier via FIFO-recovered cost instead of writing a `Loss`, every
+other reason writes one `Loss`; `/supplier/purchase` now requires a
+real supplier; removed the dead `POST /billing/update`. 9b: Loss
+surfaced on Dashboard + 6th Reports export (`/api/export/losses`). 9c:
+hard-delete now requires `{reason, note}`, 400s if `quantity > 0`.
+Verified (9a–9c): `oxlint` 0 errors, `npm test` 66/66, `npm run build`
+clean, boot-tested — after every sub-stage. Known/open: FIFO math,
+credit increments, Loss writes, auto-disable/re-enable, and the new UI
+are code-reviewed only, no live Mongo/browser in sandbox.
 
 **Stage 10 complete (2026-08-26, condensed; see correction below).**
 UI polish, frontend-only. `Products.jsx`: Add/Update form colors match
@@ -240,3 +214,37 @@ button press.
   the next time the app opens IndexedDB — no migration of existing
   `sales` entries is needed or performed, since that store's schema is
   untouched.
+
+**2026-08-26 — Stage 12 follow-up: unit tests (Hassan-flagged).**
+Hassan flagged that `offlineQueue.js`'s functions had zero test
+coverage — true of the whole `frontend/` tree, which had no test
+runner at all before this. Small, scoped addition: `fake-indexeddb`
+added as a `frontend/` devDependency (simulates IndexedDB in Node);
+`frontend/src/lib/offlineQueue.test.js` added (10 cases, `node:test`,
+run via new `npm test` script in `frontend/package.json`) covering
+`enqueueSale`/`listQueue`/`updateSale`/`clearSynced` (the pre-existing
+`sales`-queue functions, also previously untested) and the new
+`saveLocalDraft`/`getLocalDraft`/`clearLocalDraft`, plus one test
+confirming the `drafts` and `sales` stores don't interfere with each
+other. Root `npm test` is unchanged (backend-only, per its existing
+script) — run frontend tests separately via
+`npm --prefix frontend test`.
+
+Writing these surfaced a real bug in the code from earlier this stage:
+`withStore()` opened a new IndexedDB connection on every call and
+never closed it — harmless-ish in a browser tab that eventually
+closes, but it meant `indexedDB.deleteDatabase()` (used to reset state
+between tests) hung waiting for a stale connection to release. Fixed
+by closing the connection in `tx.oncomplete`/`tx.onerror` — same
+function this stage already touched, so folded in rather than flagged
+separately.
+
+**Verified:** `frontend`: `npm test` 10/10 pass; `npm run build` clean;
+`oxlint` 0 errors on `offlineQueue.js`, `offlineQueue.test.js`,
+`Billing.jsx`. Root: `npm test` 66/66 unchanged. Artifacts
+(`node_modules` both places, `frontend/dist`, `.env`) removed after
+verification.
+
+**Known/open:** these are unit tests against `fake-indexeddb`, not a
+real browser's IndexedDB — a reasonable stand-in but not a substitute
+for the manual reload/offline check already recommended above.

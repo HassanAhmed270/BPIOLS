@@ -61,11 +61,9 @@ Check for an existing helper before creating new logic.
 - Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
 - Audit logging: `lib/auditLog.js` → `logAudit()`.
 - FIFO costing: `lib/costing.js` (`createBatch`, `consumeFIFO`,
-  `restoreConsumption`, `generateUniquePurchaseId` — shared by
-  `routes/suppliers.js` and `routes/products.js`'s create path as of
-  Stage 7), `models/StockBatch.js`.
-- Sequential ID generation: `models/Counter.js` (added Stage 2) — a
-  generic `{ _id, seq }` doc per counter key, incremented atomically via
+  `restoreConsumption`, `generateUniquePurchaseId`), `models/StockBatch.js`.
+- Sequential ID generation: `models/Counter.js` — a generic
+  `{ _id, seq }` doc per counter key, incremented atomically via
   `findOneAndUpdate($inc)`. `routes/products.js`'s `nextProductId()` is
   the first consumer; reuse this model rather than adding another
   ad-hoc counter if a later stage needs one (e.g. Order IDs).
@@ -93,6 +91,8 @@ not separately strip comments from files a stage doesn't otherwise touch.
   so boot tests confirm the route mounts and pre-DB validation/auth logic
   behaves correctly, not full end-to-end behavior against real data.
 - Frontend change: `npm run build` (Vite) before calling it done.
+  Frontend unit tests (Stage 12, `fake-indexeddb`-backed) run via
+  `npm --prefix frontend test`, separate from root `npm test`.
 - `npm test` before calling any stage done — a stage that breaks an
   existing test is not complete.
 - Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) before
@@ -160,8 +160,7 @@ flagged as changing under a specific stage):
   removed it from Supplier Purchase (`POST /supplier/purchase` now
   always requires a real supplier); Update Product never changes it.
 - Restocking/checkout use transactions; FIFO costing via `StockBatch`/
-  `lib/costing.js`. Stage 7 made Cost required on Add Product's create
-  path. Stage 9a: Update Product has no stock field; restocking goes
+  `lib/costing.js`. Update Product has no stock field; restocking goes
   through **Add Stock** (`POST /api/product/:productID/add-stock`,
   admin-only, cost+quantity, always self-buying/`NoSupplier`). **Deduct
   Stock** (`.../deduct-stock`) removes stock with a required reason
@@ -191,7 +190,8 @@ flagged as changing under a specific stage):
   `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the
   cards generically.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
-  `Product.category`. `Supplier.supplierName` relies on `unique: true`.- Customer store credit: `Customer.creditBalance` mirrors
+  `Product.category`. `Supplier.supplierName` relies on `unique: true`.
+- Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
   overpayment as credit; a **refund** takes an explicit

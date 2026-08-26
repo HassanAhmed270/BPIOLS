@@ -52,8 +52,14 @@ async function withStore(storeName, mode, fn) {
         result = r;
       })
       .catch(reject);
-    tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      db.close();
+      resolve(result);
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
