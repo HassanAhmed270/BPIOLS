@@ -161,3 +161,35 @@ state *before* this sale, separate from the bill currently being built.
   simultaneously, only confirmed via code review and a clean build.
   Recommend a manual check once merged: a customer with an outstanding
   balance, a customer in credit, and walk-in (should show nothing).
+
+**2026-08-26 — Stage 10 correction (flagged by Hassan, confirmed).**
+Stage 10's 2-column grid paired the Supplier dropdown with Selling
+Price in **Update** mode — meaning Update Product could silently
+change a product's `supplierID`. Hassan confirmed this was wrong:
+supplier is a declarative field that belongs to Add Product only;
+restocking (self-buy via Add Stock, or real supplier via Suppliers >
+Record a Purchase) is the only place supplier-related state should
+change. Fixed both sides:
+- `Products.jsx`: Supplier dropdown removed from Update mode entirely
+  (still shown in Add mode, paired with Stock). Selling Price's row
+  drops to a single column in Update mode since it no longer has a
+  pairing partner.
+- `routes/products.js`'s `POST /api/product`: `resolveSupplierId()`/
+  validation now only runs on the create path; the update branch no
+  longer sets `existingProduct.supplierID` at all — whatever the
+  product's supplier was stays untouched by Update Product, full stop.
+  `/product/undo`'s restore-from-snapshot path is unrelated (it
+  replays a full prior snapshot including supplierID) and was not
+  touched.
+
+**Verified:** `npm run build` clean; `oxlint` 0 errors on both files;
+`node --check routes/products.js` clean; `npm test` 66/66 unchanged;
+backend boot-tested (`POST /api/product` still 401s correctly with no
+token, confirming the reordered validation doesn't break the auth
+gate). Artifacts removed after verification.
+
+**Known/open:** no live DB/browser — the actual "supplier field
+persists unchanged after an Update Product save" behavior is
+code-reviewed only, not exercised end-to-end. Recommend confirming
+once merged: update a product's name/price only, then check its
+Supplier value is exactly what it was before the edit.

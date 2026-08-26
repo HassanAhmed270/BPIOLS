@@ -415,7 +415,7 @@ export default function Products() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={mode === 'add' ? 'grid grid-cols-2 gap-4' : ''}>
                     <div>
                       <label className="block mb-1 font-medium">Selling Price</label>
                       {isAdmin && mode === 'update' && (
@@ -433,7 +433,7 @@ export default function Products() {
                         className="border rounded px-3 py-2 w-full"
                       />
                     </div>
-                    {mode === 'add' ? (
+                    {mode === 'add' && (
                       <div>
                         <label className="block mb-1 font-medium">Cost</label>
                         <input
@@ -445,20 +445,6 @@ export default function Products() {
                           placeholder="Enter cost"
                           className="border rounded px-3 py-2 w-full"
                         />
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="block mb-1 font-medium">Supplier</label>
-                        <select
-                          value={form.supplierId}
-                          onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
-                          className="border rounded px-3 py-2 w-full"
-                        >
-                          <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
-                          {allSuppliers.map((s) => (
-                            <option key={s._id} value={s._id}>{s.supplierName}</option>
-                          ))}
-                        </select>
                       </div>
                     )}
                   </div>

@@ -144,10 +144,9 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`,
-`Counter` (Stage 2), `Loss` (Stage 9).
-
-Important invariants (check `final.md`/`final-progress.md` for the
-current state of any item flagged as changing under a specific stage):
+`Counter` (Stage 2), `Loss` (Stage 9). Invariants below (check
+`final.md`/`final-progress.md` for the current state of anything
+flagged as changing under a specific stage):
 - Product/order business IDs use `#0000`-style identifiers, distinct
   from Mongo `_id`. Add Product generates `#000N` server-side via
   `nextProductId()`/`models/Counter.js` (deleted IDs never reissued).
@@ -158,9 +157,10 @@ current state of any item flagged as changing under a specific stage):
   sentinel and remain real audited orders without a customer credit
   record.
 - `Product.supplierID` is an optional `Supplier` ObjectId; `NoSupplier`
-  is the self-purchase sentinel. Stage 9a removed it as a selectable
-  option on Supplier Purchase (`POST /supplier/purchase` now always
-  requires a real supplier) — self-purchase now lives only on Add Stock.
+  is the self-purchase sentinel. Set only at product creation (Add
+  Product) — Stage 9a removed it as a selectable option on Supplier
+  Purchase (`POST /supplier/purchase` now always requires a real
+  supplier); Stage 10 confirmed Update Product must never change it.
 - Restocking/checkout use transactions; FIFO costing via `StockBatch`/
   `lib/costing.js`. Stage 7 made Cost required on Add Product's create
   path. Stage 9a: Update Product has no stock field (name/price/
@@ -182,11 +182,13 @@ current state of any item flagged as changing under a specific stage):
   `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`
   (deduct remaining stock first); reason/note is an audit annotation
   only — no Loss/credit side effects fire here.
-- **UI polish** (Stage 10): Products form matches Customers.jsx's color
-  convention (blue=Add, yellow=Update), 2-column grid. Billing's
-  on-screen cart preview (not `printReceiptFor`/Special Bill) is
-  stacked receipt-lines. Stage 11 added a "Customer Balance" line
-  (`totalBalanceDue - creditBalance`, pre-sale) at its bottom.
+- **UI polish** (Stage 10, corrected): Products form matches
+  Customers.jsx's color convention (blue=Add, yellow=Update), 2-column
+  grid. Supplier is Add-mode only — Update Product never touches
+  `supplierID`. Billing's on-screen cart preview (not
+  `printReceiptFor`/Special Bill) is stacked receipt-lines, with a
+  "Customer Balance" line (`totalBalanceDue - creditBalance`, pre-sale,
+  Stage 11) at its bottom.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table
@@ -237,7 +239,6 @@ current state of any item flagged as changing under a specific stage):
 feature-flagged modules. Other `/api`, `/billing`, `/product`,
 `/customer`, `/supplier`, `/dashboard/load` → domain route files. Other
 GET → built React SPA. Unmatched `/api/*`/`/auth/*` → JSON 404.
-
 Backend authorization is the real security boundary; frontend admin
 gating is UX only.
 
@@ -246,5 +247,4 @@ gating is UX only.
 Preserve existing behavior unless the current `final.md` stage explicitly
 requires changing it. Do not add features simply because they appear
 useful. When a change conflicts with historical assumptions, follow the
-current repository plus `final.md`, then document it in
-`final-progress.md`.
+current repository plus `final.md`, then document it in `final-progress.md`.
