@@ -139,99 +139,98 @@ even though the display only reads it while a product is selected.
   Recommend a manual click-through as admin and as a non-admin role once
   merged.
 
-**2026-08-25 — Stage 9a complete (Stage 9 split into 9a/9b/9c, flagged and
+**2026-08-25 — Stage 9 complete (split into 9a/9b/9c, flagged and
 confirmed before starting; final.md itself suggested this split).**
 
-**Stage 9a — Add Stock + Deduct Stock actions, zero-stock auto-disable.**
-- `models/Product.js`: new `disabled` boolean (default false).
-- `models/Loss.js` (new): one doc per Deduct Stock write-off whose reason
-  isn't `returned_to_supplier` — `productID`, `productName`, `quantity`,
-  `costValue` (from FIFO), `reason` (`expired`/`damaged_lost`/
-  `discontinued`), `note`, `actor`, `date`. Surfacing it on Dashboard/
-  Reports is Stage 9b, not this stage — only written here.
-- `lib/costing.js`: new shared `disableIfDepleted(updated, session)` —
-  sets `Product.disabled = true` the instant a guarded decrement takes
-  `quantity` to 0. Wired into `routes/billing.js` (checkout commit loop)
-  and `lib/offlineSync.js` (offline sale commit) — both are genuine sale
-  paths that can zero out stock, so both needed it even though only
-  `routes/products.js` was in the stage's original affected-areas list;
-  flagging this as the "small, clearly-necessary addition the stage's
-  own task implies" the project rules allow proceeding on. Order
-  edit/refund never decreases a product's quantity (only restores it via
-  `applyLineReduction`), so `routes/orders.js` needed no change.
-- `routes/billing.js`: `/billing/reserve` now also guards
-  `disabled: {$ne:true}` so a disabled product can't be reserved for a
-  new cart line; its 409 response now distinguishes "not found" /
-  "disabled" / "not enough stock" for a clearer message. Removed the
-  dead `POST /billing/update` route — flagged as incidental: it was a
-  bare, reason-less quantity setter with no frontend call site
-  anywhere (confirmed via grep), and is exactly what Stage 9's own
-  completion criteria says must not exist once Deduct Stock ships.
-  Its removal also left `requireAdmin` unused in that file's import —
-  cleaned up (lint-driven, same file already being edited).
-- `routes/products.js`: Update Product's branch no longer touches
-  `quantity` at all (`stock`/`already` fully removed from that path);
-  `GET /api/products` now returns `disabled`. Two new routes:
-  `POST /api/product/:productID/add-stock` (admin, cost+quantity
-  required, always `NoSupplier`-tagged batch via the Stage 7 pattern,
-  re-enables a disabled product) and
-  `POST /api/product/:productID/deduct-stock` (admin, quantity+reason+
-  note required; `reason=returned_to_supplier` also requires a real
-  `supplierId` and credits that supplier's `creditBalance` with the
-  FIFO-recovered cost instead of writing a `Loss`; deduction is capped
-  at `quantity - reserved` so it can't pull stock out from under an open
-  cart). Both routes are transactional and audit-logged
-  (`product.stock_added`/`product.stock_deducted`).
-- `routes/suppliers.js`: `POST /supplier/purchase` now always requires a
-  real, existing supplier — rejects blank and the `NoSupplier` sentinel;
-  removed the entire `isSelfPurchase` branch (batch/audit/response paths
-  all simplified to the always-real-supplier case). Self-purchase now
-  only exists via Products' Add Stock.
-- Frontend: `Products.jsx` — Update Product's stock field/`already`
-  state removed entirely; two new dedicated forms (Add Stock, Deduct
-  Stock — the latter with a reason dropdown, conditional supplier picker
-  when "Returned to Supplier," and a confirm-dialog gate) reachable via
-  new ➕/➖ row actions; disabled products render at `opacity-50` with a
-  "Disabled" label, still fully clickable for an admin (so Add Stock can
-  re-enable them). `Suppliers.jsx` — removed the `NoSupplier` dropdown
-  option, the `isSelfPurchase`-related Amount Paid conditional, and the
-  dead `NO_SUPPLIER` const/self-purchase toast branch. `api.js` —
-  `addStock()`/`deductStock()`.
+**9a — Add Stock + Deduct Stock actions, zero-stock auto-disable.**
+`models/Product.js`: new `disabled` boolean. `models/Loss.js` (new): one
+doc per Deduct Stock write-off whose reason isn't `returned_to_supplier`
+(`productID`, `productName`, `quantity`, `costValue` from FIFO, `reason`,
+`note`, `actor`, `date`). `lib/costing.js`: new shared
+`disableIfDepleted(updated, session)`, wired into `routes/billing.js`
+(checkout) and `lib/offlineSync.js` (offline sale) — both are genuine
+sale paths that can zero out stock, so both needed it beyond the
+stage's listed affected areas; flagged as the "small, clearly-necessary
+addition" the project rules allow. `routes/billing.js`: `/billing/
+reserve` guards `disabled:{$ne:true}`; removed the dead, unreachable
+`POST /billing/update` (incidental — exactly what Stage 9's completion
+criteria says must not exist). `routes/products.js`: Update Product no
+longer touches `quantity`; `GET /api/products` returns `disabled`; two
+new routes, `POST /api/product/:productID/add-stock` (cost+quantity,
+always `NoSupplier`-tagged, re-enables) and `.../deduct-stock`
+(quantity+reason+note; `returned_to_supplier` credits a chosen
+supplier via FIFO-recovered cost instead of writing a `Loss`; capped at
+`quantity - reserved`). `routes/suppliers.js`: `/supplier/purchase` now
+always requires a real supplier, `isSelfPurchase` branch removed.
+Frontend: `Products.jsx` gained Add Stock/Deduct Stock forms + ➕/➖ row
+actions, disabled rows render greyed; `Suppliers.jsx` lost the
+`NoSupplier` option; `api.js` gained `addStock()`/`deductStock()`.
 
-**Verified:** `node -c` all touched files; `npm test` 66/66 unchanged
-(before/after the post-lint `requireAdmin` cleanup); `oxlint` 0 errors (2
-pre-existing unrelated warnings untouched); backend boot-tested twice
-(`GET /api/products`, both new product routes, `POST /supplier/purchase`,
-`POST /billing/reserve` all correctly 401; `POST /billing/update` now
-404s); `npm run build` clean. Artifacts removed after verification.
+**9b — Loss surfaced on Dashboard + a new 6th Reports export.**
+`lib/reports.js`: `getDashboardSummary` gained a `lossAgg` →
+`totalLosses`/`totalLossValue`; new `getLossRows(range)`.
+`routes/export.js`: new `GET /api/export/losses` (6th type, per
+`final.md`'s own "flag if this needs a 6th" note); `summary` export
+gained the two new columns. `Dashboard.jsx` gained a "Losses" StatCard;
+`Reports.jsx`'s `EXPORTS` array gained a `losses` entry (data-driven).
 
-**Known/open:** no live MongoDB replica set/browser — boot tests confirm
-routing/auth/validation only, not full transactional behavior (FIFO
-math, credit increments, Loss writes, auto-disable/re-enable
-end-to-end) or the new UI. Recommend running Add Stock → Deduct Stock
-(each reason) → re-Add Stock on a real product once merged. Stage 9b/9c
-were still open as of this entry (9b now done below; 9c still open).
+**9c — hard-delete rework.** `routes/products.js`'s
+`DELETE /product/:productID` now requires `{reason, note}` (shared
+`DEDUCT_REASONS` const with Deduct Stock); 400s with the remaining
+quantity if `product.quantity > 0`; otherwise the same permanent
+`findOneAndDelete`, with `reason`/`note` folded into the audit log's
+`before` as an annotation only (no Loss/credit side effects fire here).
+Frontend: 🗑️ now calls `handleDeleteClick` — blocks with a toast if
+stock remains, else opens a new Delete Product panel (reason + note,
+warning banner, confirm gate); Undo snapshot now always records
+`stock: 0`. `api.js`'s `deleteProduct()` takes a payload.
 
-**Stage 9b complete — Loss surfaced on Dashboard + a new 6th Reports
-export.** `lib/reports.js`: `getDashboardSummary` gained a `lossAgg`
-(scoped by the same range/`Loss.date`) → `totalLosses`
-(count)/`totalLossValue` (sum of `costValue`); new `getLossRows(range)`
-for row-level detail. `routes/export.js`: new `GET /api/export/losses`
-(6th export type, per `final.md`'s own "flag if this needs a 6th"
-note — going with a new type rather than folding into an existing one,
-since Losses has its own row shape); `summary` export gained
-`totalLosses`/`totalLossValue` columns. Frontend: `Dashboard.jsx` gained
-a "Losses" StatCard (count + cost written off) — bumped that row's grid
-to `md:grid-cols-5` to fit; `Reports.jsx`'s `EXPORTS` array gained a
-`losses` entry (fully data-driven, no other change needed there).
+**Verified (9a–9c, combined):** `node -c`/`oxlint` clean across every
+touched file (0 errors throughout; a handful of pre-existing unrelated
+warnings confirmed via diff, not regressions); `npm test` 66/66 pass
+unchanged after every sub-stage; `npm run build` clean after every
+sub-stage; backend boot-tested after each sub-stage (new/changed routes
+correctly 401 with no token; removed `/billing/update` 404s). Artifacts
+removed after each verification pass.
 
-**Verified:** `node -c` both backend files; `npm test` 66/66 unchanged;
-backend boot-tested (`/api/export/losses`, `/api/export/summary`,
-`/dashboard/load` all correctly 401 with no token); `npm run build`
-clean; `oxlint` on all 4 touched files — 0 errors, 2 pre-existing
-warnings in `Reports.jsx` untouched code (confirmed via diff, not
-regressions). Artifacts removed after verification.
+**Known/open:** no live MongoDB replica set or browser in this sandbox
+for any of 9a/9b/9c — boot tests confirm routing/auth/validation only,
+not full transactional behavior (FIFO math, credit increments, Loss
+writes, auto-disable/re-enable, hard-delete's quantity gate) or any new
+UI, which are code-reviewed only. Recommend once merged: create a
+product → deduct all stock (any reason) → confirm disabled + (if not
+"Returned to Supplier") a Loss entry, appearing on the Dashboard/in the
+new Losses export → re-Add Stock → confirm re-enabled → deduct to zero
+again with reason "Returned to Supplier" → confirm supplier credit
+adjusted, no Loss entry → delete with a reason → confirm permanent
+removal; separately, attempt delete on a product with remaining stock →
+confirm blocked. Stage 9 (9a+9b+9c) is fully complete as of this entry.
 
-**Known/open:** no live DB/browser — the aggregation math and new
-StatCard/export-card rendering are code-reviewed only. Stage 9c
-(hard-delete rework) is still open.
+**Stage 9c complete — hard-delete rework. Stage 9 now fully done
+(9a+9b+9c).** `routes/products.js`'s `DELETE /product/:productID` now
+requires `{reason, note}` from the same reason set Deduct Stock uses
+(factored into a shared `DEDUCT_REASONS` const); 400s with the remaining
+quantity if `product.quantity > 0` ("deduct all remaining stock first");
+otherwise performs the same permanent `findOneAndDelete` as before, with
+`reason`/`note` folded into the audit log's `before` snapshot as an
+annotation (no Loss/credit side effects here — those already fired, if
+relevant, when Deduct Stock brought quantity to 0). Frontend:
+`Products.jsx`'s 🗑️ button now calls `handleDeleteClick`, which blocks
+with a toast if stock remains, else opens a new "Delete Product" panel
+(reason dropdown + required note, red warning banner, confirm-dialog
+gate) mirroring Add/Deduct Stock's pattern; Undo snapshot now always
+records `stock: 0` (the only value reachable pre-delete now).
+`api.js`'s `deleteProduct()` takes a payload, sent as the DELETE body.
+
+**Verified:** `node -c`/`oxlint` (0 errors) on all 3 touched files;
+`npm test` 66/66 unchanged; backend boot-tested (`DELETE
+/product/:productID` and `POST .../deduct-stock` both correctly 401
+with no token); `npm run build` clean. Artifacts removed.
+
+**Known/open:** no live DB/browser — the quantity>0 block, the
+reason-logged delete, and the new panel are code-reviewed only.
+Recommend the exact flow `final.md` calls out: create → deduct all
+stock (any reason) → confirm disabled — delete now unblocked → delete
+with a reason → confirm permanent removal; separately, attempt delete
+on a product with remaining stock → confirm blocked. All three Stage 9
+sub-stages (9a/9b/9c) are complete as of this entry.

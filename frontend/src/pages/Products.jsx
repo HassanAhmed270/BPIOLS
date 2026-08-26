@@ -27,6 +27,9 @@ const REASON_OPTIONS = [
   { value: 'discontinued', label: 'Discontinued' },
 ];
 const emptyDeductForm = { productId: '', productName: '', available: 0, quantity: '', reason: '', supplierId: '', note: '' };
+// final.md Stage 9c — hard delete now opens the same reason form as
+// Deduct Stock, only reachable once quantity is already 0.
+const emptyDeleteForm = { productId: '', productName: '', category: '', price: 0, supplierId: NO_SUPPLIER, lowStockThreshold: 10, reason: '', note: '' };
 const PAGE_SIZE = 10;
 
 export default function Products() {
@@ -48,10 +51,11 @@ export default function Products() {
   const [page, setPage] = useState(1);
 
   const [selectedId, setSelectedId] = useState(null);
-  const [mode, setMode] = useState('add'); // 'add' | 'update' | 'addstock' | 'deductstock'
+  const [mode, setMode] = useState('add'); // 'add' | 'update' | 'addstock' | 'deductstock' | 'delete'
   const [form, setForm] = useState(emptyForm);
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [deductForm, setDeductForm] = useState(emptyDeductForm);
+  const [deleteForm, setDeleteForm] = useState(emptyDeleteForm);
   // Previous selling price for the product currently being edited (Stage
   // 13, admin-only) — shown next to the new-price input so an admin can
   // see what it was vs. what they're about to set it to. null in 'add'
@@ -112,6 +116,7 @@ export default function Products() {
     setForm(emptyForm);
     setStockForm(emptyStockForm);
     setDeductForm(emptyDeductForm);
+    setDeleteForm(emptyDeleteForm);
     setPreviousPrice(null);
     setMode('add');
     setSelectedId(null);
@@ -224,25 +229,54 @@ export default function Products() {
     }
   };
 
-  const handleDelete = async (p) => {
-    if (!(await confirm(`Delete product ${p.productID}?`))) return;
+  const handleDeleteClick = (p) => {
+    if (p.quantity > 0) {
+      toast.error(`Deduct all remaining stock (${p.quantity} unit(s)) before deleting this product.`);
+      return;
+    }
+    setSelectedId(p.productID);
+    setMode('delete');
+    setDeleteForm({
+      productId: p.productID,
+      productName: p.productName,
+      category: p.category,
+      price: p.price ?? 0,
+      supplierId: p.supplierId || NO_SUPPLIER,
+      lowStockThreshold: p.lowStockThreshold ?? 10,
+      reason: '',
+      note: '',
+    });
+  };
+
+  const handleDeleteSubmit = async (e) => {
+    e.preventDefault();
+    if (!deleteForm.reason) {
+      toast.error('Select a reason.');
+      return;
+    }
+    if (!deleteForm.note.trim()) {
+      toast.error('A note is required.');
+      return;
+    }
+    if (!(await confirm(`Permanently delete ${deleteForm.productId} — ${deleteForm.productName}? This cannot be undone.`))) return;
     try {
-      await api.deleteProduct(p.productID);
+      await api.deleteProduct(deleteForm.productId, { reason: deleteForm.reason, note: deleteForm.note.trim() });
       setUndoStack((s) => [
         ...s,
         {
-          productId: p.productID,
-          productName: p.productName,
-          category: p.category,
-          price: p.price ?? 0,
-          stock: p.quantity,
-          supplierId: p.supplierId || NO_SUPPLIER,
-          lowStockThreshold: p.lowStockThreshold ?? 10,
+          productId: deleteForm.productId,
+          productName: deleteForm.productName,
+          category: deleteForm.category,
+          price: deleteForm.price,
+          stock: 0,
+          supplierId: deleteForm.supplierId,
+          lowStockThreshold: deleteForm.lowStockThreshold,
         },
       ]);
       await loadProducts();
       setShowUndo(true);
       setTimeout(() => setShowUndo(false), 5000);
+      resetForm();
     } catch (err) {
       toast.error('Failed to delete product: ' + err.message);
     }
@@ -326,7 +360,7 @@ export default function Products() {
                                     <button onClick={() => handleSelectForUpdate(p)} className="text-blue-600 hover:text-blue-800" title="Edit">✏️</button>
                                     <button onClick={() => handleSelectForAddStock(p)} className="text-green-600 hover:text-green-800" title="Add Stock">➕</button>
                                     <button onClick={() => handleSelectForDeductStock(p)} className="text-orange-600 hover:text-orange-800" title="Deduct Stock">➖</button>
-                                    <button onClick={() => handleDelete(p)} className="text-red-600 hover:text-red-800" title="Delete">🗑️</button>
+                                    <button onClick={() => handleDeleteClick(p)} className="text-red-600 hover:text-red-800" title="Delete">🗑️</button>
                                   </>
                                 ) : (
                                   <span className="text-xs text-gray-400">—</span>
@@ -564,6 +598,49 @@ export default function Products() {
                   </div>
                   <div className="flex gap-2">
                     <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">Deduct Stock</button>
+                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+                  </div>
+                </form>
+              </div>
+              )}
+
+              {isAdmin && mode === 'delete' && (
+              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                <h2 className="text-2xl flex justify-center text-red-600 font-bold mb-4">Delete Product</h2>
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
+                  This permanently removes the product from the database. This cannot be undone (aside from the
+                  temporary Undo button after confirming).
+                </p>
+                <form onSubmit={handleDeleteSubmit} className="space-y-4 w-full">
+                  <div>
+                    <label className="block mb-1 font-medium">Product</label>
+                    <input type="text" value={`${deleteForm.productId} — ${deleteForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Reason</label>
+                    <select
+                      value={deleteForm.reason}
+                      onChange={(e) => setDeleteForm({ ...deleteForm, reason: e.target.value })}
+                      className="border rounded px-3 py-2 w-full"
+                    >
+                      <option value="">Select reason</option>
+                      {REASON_OPTIONS.map((r) => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Note</label>
+                    <input
+                      type="text"
+                      value={deleteForm.note}
+                      onChange={(e) => setDeleteForm({ ...deleteForm, note: e.target.value })}
+                      placeholder="Explain why this product is being deleted"
+                      className="border rounded px-3 py-2 w-full"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete Permanently</button>
                     <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
                   </div>
                 </form>

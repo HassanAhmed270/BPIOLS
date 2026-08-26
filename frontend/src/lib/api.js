@@ -55,7 +55,7 @@ export const api = {
   getLowStockProducts: () => request('/api/products/low-stock'),
   saveProduct: (payload) => request('/api/product', { method: 'POST', body: JSON.stringify(payload) }),
   undoProduct: (payload) => request('/product/undo', { method: 'POST', body: JSON.stringify(payload) }),
-  deleteProduct: (productId) => request(`/product/${encodeURIComponent(productId)}`, { method: 'DELETE' }),
+  deleteProduct: (productId, payload) => request(`/product/${encodeURIComponent(productId)}`, { method: 'DELETE', body: JSON.stringify(payload) }),
   // Stage 9 (final.md) — dedicated restock/write-off actions, replacing
   // Update Product's old stock field.
   addStock: (productId, payload) => request(`/api/product/${encodeURIComponent(productId)}/add-stock`, { method: 'POST', body: JSON.stringify(payload) }),

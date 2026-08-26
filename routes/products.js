@@ -320,6 +320,7 @@ router.post('/api/product/:productID/add-stock', requireAuth, requireAdmin, asyn
 // Reports as of Stage 9b. Draws down FIFO cost batches the same way a
 // sale does (lib/costing.js) so the recorded cost/credit is never
 // invented for stock that has no batch behind it.
+const DEDUCT_REASONS = [...Loss.REASONS, 'returned_to_supplier'];
 router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { productID } = req.params;
   const { quantity, reason, note, supplierId } = req.body;
@@ -327,7 +328,7 @@ router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, a
   if (!isValidProductId(productID)) {
     return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
   }
-  if (!Loss.REASONS.includes(reason) && reason !== 'returned_to_supplier') {
+  if (!DEDUCT_REASONS.includes(reason)) {
     return res.status(400).json({ success: false, message: 'Invalid reason.' });
   }
   if (!note || !note.trim()) {
@@ -425,20 +426,44 @@ router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, a
   res.status(200).json({ success: true, message: 'Stock deducted.', ...result });
 }));
 
+// final.md Stage 9c — hard delete is genuinely destructive, so it's now
+// only reachable once a product's stock is fully accounted for (zero
+// remaining — get there via Deduct Stock above for any residual
+// quantity) and opens the same reason form Deduct Stock uses. The
+// reason/note here is a separate audit annotation on *why the whole
+// product record is being removed*, not a stock movement — no Loss/
+// credit side effects fire from this route itself (those already fired,
+// if relevant, when Deduct Stock brought quantity to 0).
 router.delete('/product/:productID', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { productID } = req.params;
-  const deleted = await Product.findOneAndDelete({ productID });
+  const { reason, note } = req.body;
 
-  if (!deleted) {
+  if (!DEDUCT_REASONS.includes(reason)) {
+    return res.status(400).json({ success: false, message: 'Invalid reason.' });
+  }
+  if (!note || !note.trim()) {
+    return res.status(400).json({ success: false, message: 'A note is required.' });
+  }
+
+  const product = await Product.findOne({ productID });
+  if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found.' });
   }
+  if (product.quantity > 0) {
+    return res.status(400).json({
+      success: false,
+      message: `This product still has ${product.quantity} unit(s) of stock. Deduct all remaining stock before deleting.`,
+    });
+  }
+
+  const deleted = await Product.findOneAndDelete({ productID });
 
   await logAudit({
     action: 'product.deleted',
     actor: { username: req.user.username, role: req.user.role },
     targetType: 'product',
     targetId: productID,
-    before: deleted.toObject(),
+    before: { ...deleted.toObject(), reason, note: note.trim() },
     after: null,
   });
 

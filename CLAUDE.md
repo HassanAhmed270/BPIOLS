@@ -1,9 +1,9 @@
 # CLAUDE.md — BPIOLS Final Fixes
 
-The `production.md` phase (Stage 1–8) is complete and merged. This
-repository is now in a separate **final-fixes phase**, defined by
-`final.md`. The app remains feature-complete; current work is further
-correctness/UX/workflow fixes identified after production-hardening closed.
+The `production.md` phase (Stage 1–8) is complete and merged. This repo
+is now in a separate **final-fixes phase**, defined by `final.md`. The
+app remains feature-complete; current work is further correctness/UX/
+workflow fixes identified after production-hardening closed.
 
 ## Document authority
 
@@ -41,9 +41,8 @@ independent stage-numbering sequences exist in this repo: this phase,
 - Do not refactor or "improve while you're here."
 - If a stage becomes too large, flag it and split rather than push
   through oversized. Stage 9 did this: **9a** (Add/Deduct Stock,
-  zero-stock auto-disable — done), **9b** (Loss on Dashboard/Reports —
-  done), **9c** (hard-delete rework — pending). Treat 9c as the next
-  `final.md` work, not a new stage number.
+  zero-stock auto-disable), **9b** (Loss on Dashboard/Reports), **9c**
+  (hard-delete rework) — all three now done.
 - `final.md`'s "Deferred" section is currently empty — all originally-
   deferred items are now scoped as Stages 12–14. Newly raised items go
   there first, then get promoted to a numbered stage.
@@ -145,12 +144,11 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2), `Loss` (Stage 9a — one entry per Deduct Stock write-off;
-surfaced on Dashboard + a 6th Reports export as of Stage 9b).
+(Stage 2), `Loss` (Stage 9a/9b — write-offs, surfaced on Dashboard +
+Reports).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
-
 - Product/order business IDs use `#0000`-style identifiers, distinct
   from Mongo `_id`. Add Product generates `#000N` server-side via
   `nextProductId()`/`models/Counter.js` (deleted IDs never reissued).
@@ -184,8 +182,10 @@ current state of any item flagged as changing under a specific stage):
   `quantity` hits 0 — called after checkout, offline sync, and Deduct
   Stock decrements. Only Add Stock clears it. Disabled products stay
   visible (greyed out) but `POST /billing/reserve` won't reserve one.
-  Hard-delete rework (only reachable at zero stock) is Stage 9c, not yet
-  done.
+- **Hard delete** (Stage 9c): `DELETE /product/:productID` requires
+  `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`
+  (deduct remaining stock first); reason/note is an audit annotation
+  only — no Loss/credit side effects fire here.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table
@@ -246,5 +246,5 @@ gating is UX only.
 Preserve existing behavior unless the current `final.md` stage explicitly
 requires changing it. Do not add features simply because they appear
 useful. When a change conflicts with historical assumptions, follow the
-current repository plus `final.md`, then document the change in
+current repository plus `final.md`, then document it in
 `final-progress.md`.
