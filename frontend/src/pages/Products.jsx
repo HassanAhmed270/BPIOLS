@@ -16,6 +16,17 @@ import { useConfirm } from '../components/ConfirmDialog';
 // same as an empty value: stored as null, no Supplier record required).
 const NO_SUPPLIER = 'NoSupplier';
 const emptyForm = { productId: '', productName: '', category: '', price: '', stock: '', cost: '', supplierId: NO_SUPPLIER, lowStockThreshold: '' };
+// final.md Stage 9 — Add Stock and Deduct Stock are separate dedicated
+// actions now, each with their own small form, distinct from `form`
+// (Add/Update Product, name+price only as of this stage).
+const emptyStockForm = { productId: '', productName: '', cost: '', quantity: '' };
+const REASON_OPTIONS = [
+  { value: 'expired', label: 'Expired' },
+  { value: 'returned_to_supplier', label: 'Returned to Supplier' },
+  { value: 'damaged_lost', label: 'Damaged / Lost' },
+  { value: 'discontinued', label: 'Discontinued' },
+];
+const emptyDeductForm = { productId: '', productName: '', available: 0, quantity: '', reason: '', supplierId: '', note: '' };
 const PAGE_SIZE = 10;
 
 export default function Products() {
@@ -37,9 +48,10 @@ export default function Products() {
   const [page, setPage] = useState(1);
 
   const [selectedId, setSelectedId] = useState(null);
-  const [mode, setMode] = useState('add'); // 'add' | 'update'
+  const [mode, setMode] = useState('add'); // 'add' | 'update' | 'addstock' | 'deductstock'
   const [form, setForm] = useState(emptyForm);
-  const [already, setAlready] = useState(0);
+  const [stockForm, setStockForm] = useState(emptyStockForm);
+  const [deductForm, setDeductForm] = useState(emptyDeductForm);
   // Previous selling price for the product currently being edited (Stage
   // 13, admin-only) — shown next to the new-price input so an admin can
   // see what it was vs. what they're about to set it to. null in 'add'
@@ -98,7 +110,8 @@ export default function Products() {
 
   const resetForm = () => {
     setForm(emptyForm);
-    setAlready(0);
+    setStockForm(emptyStockForm);
+    setDeductForm(emptyDeductForm);
     setPreviousPrice(null);
     setMode('add');
     setSelectedId(null);
@@ -117,8 +130,20 @@ export default function Products() {
       supplierId: p.supplierId || NO_SUPPLIER,
       lowStockThreshold: p.lowStockThreshold ?? 10,
     });
-    setAlready(p.quantity);
     setPreviousPrice(p.price ?? null);
+  };
+
+  const handleSelectForAddStock = (p) => {
+    setSelectedId(p.productID);
+    setMode('addstock');
+    setStockForm({ productId: p.productID, productName: p.productName, cost: '', quantity: '' });
+  };
+
+  const handleSelectForDeductStock = (p) => {
+    setSelectedId(p.productID);
+    setMode('deductstock');
+    const available = p.available ?? p.quantity - (p.reserved || 0);
+    setDeductForm({ productId: p.productID, productName: p.productName, available, quantity: '', reason: '', supplierId: '', note: '' });
   };
 
   const handleSubmit = async (e) => {
@@ -132,7 +157,7 @@ export default function Products() {
       return;
     }
     try {
-      const result = await api.saveProduct({ ...form, already: mode === 'update' ? already : 0 });
+      const result = await api.saveProduct(form);
       await loadProducts();
       resetForm();
       if (mode === 'add' && result?.productId) {
@@ -140,6 +165,62 @@ export default function Products() {
       }
     } catch (err) {
       toast.error('Error saving product: ' + err.message);
+    }
+  };
+
+  const handleAddStockSubmit = async (e) => {
+    e.preventDefault();
+    const qty = parseInt(stockForm.quantity);
+    if (stockForm.cost === '' || isNaN(Number(stockForm.cost)) || Number(stockForm.cost) < 0) {
+      toast.error('Cost is required.');
+      return;
+    }
+    if (!Number.isInteger(qty) || qty <= 0) {
+      toast.error('Enter a valid quantity.');
+      return;
+    }
+    try {
+      const data = await api.addStock(stockForm.productId, { cost: stockForm.cost, quantity: qty });
+      toast.success(data.disabled === false ? `Stock added. ${stockForm.productName} is now enabled again.` : 'Stock added.');
+      await loadProducts();
+      resetForm();
+    } catch (err) {
+      toast.error('Failed to add stock: ' + err.message);
+    }
+  };
+
+  const handleDeductStockSubmit = async (e) => {
+    e.preventDefault();
+    const qty = parseInt(deductForm.quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      toast.error('Enter a valid quantity.');
+      return;
+    }
+    if (!deductForm.reason) {
+      toast.error('Select a reason.');
+      return;
+    }
+    if (deductForm.reason === 'returned_to_supplier' && !deductForm.supplierId) {
+      toast.error('Select the supplier this stock is being returned to.');
+      return;
+    }
+    if (!deductForm.note.trim()) {
+      toast.error('A note is required.');
+      return;
+    }
+    if (!(await confirm(`Deduct ${qty} unit(s) of ${deductForm.productName}?`))) return;
+    try {
+      const data = await api.deductStock(deductForm.productId, {
+        quantity: qty,
+        reason: deductForm.reason,
+        note: deductForm.note.trim(),
+        ...(deductForm.reason === 'returned_to_supplier' ? { supplierId: deductForm.supplierId } : {}),
+      });
+      toast.success(data.disabled ? 'Stock deducted. Product is now disabled (zero stock).' : 'Stock deducted.');
+      await loadProducts();
+      resetForm();
+    } catch (err) {
+      toast.error('Failed to deduct stock: ' + err.message);
     }
   };
 
@@ -225,10 +306,13 @@ export default function Products() {
                           return (
                             <tr
                               key={p.productID}
-                              className={`border-b hover:bg-gray-50 ${selectedId === p.productID ? 'bg-blue-50' : ''} ${lowStock ? 'bg-red-50' : ''}`}
+                              className={`border-b hover:bg-gray-50 ${selectedId === p.productID ? 'bg-blue-50' : ''} ${lowStock ? 'bg-red-50' : ''} ${p.disabled ? 'opacity-50' : ''}`}
                             >
                               <td className="py-2 px-3">{p.productID}</td>
-                              <td className="py-2 px-3">{p.productName}</td>
+                              <td className="py-2 px-3">
+                                {p.productName}
+                                {p.disabled && <span className="ml-2 text-xs font-semibold text-gray-500">Disabled</span>}
+                              </td>
                               <td className="py-2 px-3">{p.category}</td>
                               <td className="py-2 px-3">{formatMoney(p.price ?? 0)}</td>
                               <td className={`py-2 px-3 ${lowStock ? 'text-red-700 font-semibold' : ''}`}>
@@ -240,6 +324,8 @@ export default function Products() {
                                 {isAdmin ? (
                                   <>
                                     <button onClick={() => handleSelectForUpdate(p)} className="text-blue-600 hover:text-blue-800" title="Edit">✏️</button>
+                                    <button onClick={() => handleSelectForAddStock(p)} className="text-green-600 hover:text-green-800" title="Add Stock">➕</button>
+                                    <button onClick={() => handleSelectForDeductStock(p)} className="text-orange-600 hover:text-orange-800" title="Deduct Stock">➖</button>
                                     <button onClick={() => handleDelete(p)} className="text-red-600 hover:text-red-800" title="Delete">🗑️</button>
                                   </>
                                 ) : (
@@ -256,7 +342,7 @@ export default function Products() {
                 <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
               </div>
 
-              {isAdmin && (
+              {isAdmin && (mode === 'add' || mode === 'update') && (
               <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
                 <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">
                   {mode === 'add' ? 'Add New Product' : 'Update Product'}
@@ -311,32 +397,31 @@ export default function Products() {
                     />
                   </div>
                   {mode === 'add' && (
-                    <div>
-                      <label className="block mb-1 font-medium">Cost</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={form.cost}
-                        onChange={(e) => setForm({ ...form, cost: e.target.value })}
-                        placeholder="Enter cost"
-                        className="border rounded px-3 py-2 w-full"
-                      />
-                    </div>
+                    <>
+                      <div>
+                        <label className="block mb-1 font-medium">Cost</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={form.cost}
+                          onChange={(e) => setForm({ ...form, cost: e.target.value })}
+                          placeholder="Enter cost"
+                          className="border rounded px-3 py-2 w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 font-medium">Stock</label>
+                        <input
+                          type="number"
+                          value={form.stock}
+                          onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                          placeholder="Enter stock"
+                          className="border rounded px-3 py-2 w-full"
+                        />
+                      </div>
+                    </>
                   )}
-                  <div>
-                    <label className="block mb-1 font-medium">{mode === 'add' ? 'Stock' : 'Add Stock'}</label>
-                    <input
-                      type="number"
-                      value={form.stock}
-                      onChange={(e) => setForm({ ...form, stock: e.target.value })}
-                      placeholder="Enter stock"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                    {mode === 'update' && (
-                      <p className="text-xs text-gray-500 mt-1">Current stock: {already} — this amount will be added to it.</p>
-                    )}
-                  </div>
                   <div>
                     <label className="block mb-1 font-medium">Supplier</label>
                     <select
@@ -372,6 +457,114 @@ export default function Products() {
                         Cancel
                       </button>
                     )}
+                  </div>
+                </form>
+              </div>
+              )}
+
+              {isAdmin && mode === 'addstock' && (
+              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">Add Stock</h2>
+                <form onSubmit={handleAddStockSubmit} className="space-y-4 w-full">
+                  <div>
+                    <label className="block mb-1 font-medium">Product</label>
+                    <input type="text" value={`${stockForm.productId} — ${stockForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Cost</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={stockForm.cost}
+                      onChange={(e) => setStockForm({ ...stockForm, cost: e.target.value })}
+                      placeholder="Enter cost"
+                      className="border rounded px-3 py-2 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={stockForm.quantity}
+                      onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })}
+                      placeholder="Enter quantity"
+                      className="border rounded px-3 py-2 w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Always self-purchased — for a real supplier restock, use Suppliers &gt; Record a Purchase instead.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Add Stock</button>
+                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+                  </div>
+                </form>
+              </div>
+              )}
+
+              {isAdmin && mode === 'deductstock' && (
+              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                <h2 className="text-2xl flex justify-center text-orange-600 font-bold mb-4">Deduct Stock</h2>
+                <form onSubmit={handleDeductStockSubmit} className="space-y-4 w-full">
+                  <div>
+                    <label className="block mb-1 font-medium">Product</label>
+                    <input type="text" value={`${deductForm.productId} — ${deductForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                    <p className="text-xs text-gray-500 mt-1">Available: {deductForm.available}</p>
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max={deductForm.available}
+                      value={deductForm.quantity}
+                      onChange={(e) => setDeductForm({ ...deductForm, quantity: e.target.value })}
+                      placeholder="Enter quantity"
+                      className="border rounded px-3 py-2 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Reason</label>
+                    <select
+                      value={deductForm.reason}
+                      onChange={(e) => setDeductForm({ ...deductForm, reason: e.target.value, supplierId: '' })}
+                      className="border rounded px-3 py-2 w-full"
+                    >
+                      <option value="">Select reason</option>
+                      {REASON_OPTIONS.map((r) => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {deductForm.reason === 'returned_to_supplier' && (
+                    <div>
+                      <label className="block mb-1 font-medium">Supplier</label>
+                      <select
+                        value={deductForm.supplierId}
+                        onChange={(e) => setDeductForm({ ...deductForm, supplierId: e.target.value })}
+                        className="border rounded px-3 py-2 w-full"
+                      >
+                        <option value="">Select supplier</option>
+                        {allSuppliers.map((s) => (
+                          <option key={s._id} value={s._id}>{s.supplierName}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">Recovered cost is credited to this supplier's balance — no loss is recorded.</p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block mb-1 font-medium">Note</label>
+                    <input
+                      type="text"
+                      value={deductForm.note}
+                      onChange={(e) => setDeductForm({ ...deductForm, note: e.target.value })}
+                      placeholder="Explain why this stock is being removed"
+                      className="border rounded px-3 py-2 w-full"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">Deduct Stock</button>
+                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
                   </div>
                 </form>
               </div>

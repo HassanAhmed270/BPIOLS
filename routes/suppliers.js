@@ -128,15 +128,12 @@ router.delete('/supplier/:supplierName', requireAuth, requireAdmin, asyncHandler
 // pattern as POST /billing/orderDetails (Stage 3/4), since this touches
 // money and stock together just like a sale does.
 //
-// Stage 20: `supplierName === NO_SUPPLIER` is the self-purchased/
-// "Buy Myself" path — same sentinel-string pattern as WALKIN_CUSTOMER.
-// It skips the Supplier lookup and the $push into a Supplier document
-// entirely (there's no supplier to owe money to, and Stage 20 explicitly
-// says not to invent a fake Supplier record just to complete a
-// purchase); stock and buyingPriceHistory still update exactly the same
-// as a real-supplier purchase, just with supplierID: null. Because there's
-// no Supplier.purchases entry, a self-purchase won't show up in any
-// supplier's purchase-history table — it's not attached to one, by design.
+// final.md Stage 9: this route now always requires a real, existing
+// Supplier — self-purchase (formerly the NO_SUPPLIER/"Buy Myself"
+// option here) moved to its own dedicated Add Stock action on the
+// Products page (routes/products.js's POST /api/product/:productID/
+// add-stock), which uses the same NoSupplier-tagged-batch pattern
+// Stage 7 established for a brand-new product's initial stock.
 //
 // Stage 21: each item may *optionally* carry a `sellingPrice` alongside
 // its (required) `unitCost` — restocking is now allowed to update what
@@ -160,9 +157,8 @@ router.delete('/supplier/:supplierName', requireAuth, requireAdmin, asyncHandler
 // on the supplier document, not as a negative number on one purchase.
 router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => {
   const { supplierName, items, amountPaid } = req.body;
-  const isSelfPurchase = supplierName === NO_SUPPLIER;
 
-  if (!supplierName || !supplierName.trim()) {
+  if (!supplierName || !supplierName.trim() || supplierName === NO_SUPPLIER) {
     return res.status(400).json({ success: false, message: 'Supplier is required.' });
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -197,12 +193,9 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
   }
   const paidInput = roundMoney(hasAmountPaid ? Number(amountPaid) : 0);
 
-  let supplier = null;
-  if (!isSelfPurchase) {
-    supplier = await Supplier.findOne({ supplierName: supplierName.trim().replace(/\s+/g, ' ') });
-    if (!supplier) {
-      return res.status(400).json({ success: false, message: `Supplier "${supplierName}" not found.` });
-    }
+  const supplier = await Supplier.findOne({ supplierName: supplierName.trim().replace(/\s+/g, ' ') });
+  if (!supplier) {
+    return res.status(400).json({ success: false, message: `Supplier "${supplierName}" not found.` });
   }
 
   const cleanItems = items.map((it) => {
@@ -219,12 +212,10 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
   });
   const totalAmount = roundMoney(cleanItems.reduce((sum, it) => sum + it.unitCost * it.quantity, 0));
   const purchaseID = await generateUniquePurchaseId();
-  // Self-purchase has no supplier to owe money to or receive credit
-  // from — these stay at their old fixed values for that path. The real
-  // (credit-aware) math happens inside the transaction below, once the
-  // supplier's current creditBalance can be read consistently.
-  let paid = isSelfPurchase ? totalAmount : null;
-  let balanceDue = isSelfPurchase ? 0 : null;
+  // The real (credit-aware) math happens inside the transaction below,
+  // once the supplier's current creditBalance can be read consistently.
+  let paid = null;
+  let balanceDue = null;
   let creditApplied = 0;
   let creditGenerated = 0;
   let newCreditBalance = 0;
@@ -241,7 +232,7 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
         product.buyingPriceHistory.push({
           price: item.unitCost,
           date: new Date(),
-          supplierID: isSelfPurchase ? null : supplier._id,
+          supplierID: supplier._id,
         });
         // Stage 21: only append a new sellingPriceHistory entry if a
         // selling price was actually submitted for this item AND it
@@ -257,12 +248,10 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
         await product.save({ session });
 
         // Stage 22: every restock is its own distinct cost batch —
-        // consumed oldest-first by a future sale (lib/costing.js). Self-
-        // purchases get a batch too (supplierID: null), same as they
-        // already get a buyingPriceHistory entry above.
+        // consumed oldest-first by a future sale (lib/costing.js).
         await createBatch({
           productID: item.productID,
-          supplierID: isSelfPurchase ? null : supplier._id,
+          supplierID: supplier._id,
           purchaseID,
           quantity: item.quantity,
           unitCost: item.unitCost,
@@ -270,64 +259,60 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
         });
       }
 
-      if (!isSelfPurchase) {
-        // Stage 21 credit fix: re-read the supplier's creditBalance
-        // inside the transaction (session-scoped), not from the `supplier`
-        // fetched before the transaction started — another purchase could
-        // have changed it in between. Any existing credit is applied to
-        // *this* purchase's total first; only what's left after that is
-        // "owed", and only overpaying *that* remainder creates new credit.
-        const supplierDoc = await Supplier.findOne({ _id: supplier._id }).session(session);
-        if (!supplierDoc) {
-          throw new AppError(400, `Supplier "${supplierName}" no longer exists.`);
-        }
-        const existingCredit = roundMoney(supplierDoc.creditBalance || 0);
-        creditApplied = roundMoney(Math.min(existingCredit, totalAmount));
-        const netOwed = roundMoney(totalAmount - creditApplied);
-        creditGenerated = roundMoney(Math.max(0, paidInput - netOwed));
-        paid = paidInput; // what was actually paid this transaction, recorded as-is (no longer capped)
-        balanceDue = roundMoney(Math.max(0, netOwed - paidInput));
-        newCreditBalance = roundMoney(existingCredit - creditApplied + creditGenerated);
-
-        // Note: Supplier.purchases' item sub-schema (models/Supplier.js)
-        // doesn't declare a `sellingPrice` field, so Mongoose silently
-        // strips it here even though cleanItems carries it — intentional,
-        // not a bug. A supplier's purchase-history table is a record of
-        // what was bought/owed, not a place selling-price changes need to
-        // live twice; the actual record of the change is
-        // Product.sellingPriceHistory (updated above) and this action's
-        // own audit-log entry (below, which does keep it — before Mongo
-        // schema stripping applies).
-        await Supplier.updateOne(
-          { _id: supplier._id },
-          {
-            $set: { creditBalance: newCreditBalance },
-            $push: { purchases: { purchaseID, totalAmount, amountPaid: paid, balanceDue, creditApplied, creditGenerated, items: cleanItems } },
-          },
-          { session }
-        );
+      // Stage 21 credit fix: re-read the supplier's creditBalance
+      // inside the transaction (session-scoped), not from the `supplier`
+      // fetched before the transaction started — another purchase could
+      // have changed it in between. Any existing credit is applied to
+      // *this* purchase's total first; only what's left after that is
+      // "owed", and only overpaying *that* remainder creates new credit.
+      const supplierDoc = await Supplier.findOne({ _id: supplier._id }).session(session);
+      if (!supplierDoc) {
+        throw new AppError(400, `Supplier "${supplierName}" no longer exists.`);
       }
+      const existingCredit = roundMoney(supplierDoc.creditBalance || 0);
+      creditApplied = roundMoney(Math.min(existingCredit, totalAmount));
+      const netOwed = roundMoney(totalAmount - creditApplied);
+      creditGenerated = roundMoney(Math.max(0, paidInput - netOwed));
+      paid = paidInput; // what was actually paid this transaction, recorded as-is (no longer capped)
+      balanceDue = roundMoney(Math.max(0, netOwed - paidInput));
+      newCreditBalance = roundMoney(existingCredit - creditApplied + creditGenerated);
+
+      // Note: Supplier.purchases' item sub-schema (models/Supplier.js)
+      // doesn't declare a `sellingPrice` field, so Mongoose silently
+      // strips it here even though cleanItems carries it — intentional,
+      // not a bug. A supplier's purchase-history table is a record of
+      // what was bought/owed, not a place selling-price changes need to
+      // live twice; the actual record of the change is
+      // Product.sellingPriceHistory (updated above) and this action's
+      // own audit-log entry (below, which does keep it — before Mongo
+      // schema stripping applies).
+      await Supplier.updateOne(
+        { _id: supplier._id },
+        {
+          $set: { creditBalance: newCreditBalance },
+          $push: { purchases: { purchaseID, totalAmount, amountPaid: paid, balanceDue, creditApplied, creditGenerated, items: cleanItems } },
+        },
+        { session }
+      );
 
       await logAudit(
         {
-          action: isSelfPurchase ? 'product.restocked' : 'supplier.purchase',
+          action: 'supplier.purchase',
           actor: { username: req.user.username, role: req.user.role },
-          targetType: isSelfPurchase ? 'product' : 'supplier',
-          targetId: isSelfPurchase ? NO_SUPPLIER : supplier.supplierName,
+          targetType: 'supplier',
+          targetId: supplier.supplierName,
           before: null,
-          after: isSelfPurchase
-            ? { purchaseID, supplierName: NO_SUPPLIER, items: cleanItems, totalAmount }
-            : {
-                purchaseID,
-                supplierName: supplier.supplierName,
-                items: cleanItems,
-                totalAmount,
-                amountPaid: paid,
-                balanceDue,
-                creditApplied,
-                creditGenerated,
-                newCreditBalance,
-              },
+          after: {
+            purchaseID,
+            supplierName: supplier.supplierName,
+            items: cleanItems,
+            totalAmount,
+            amountPaid: paid,
+            balanceDue,
+            creditApplied,
+            creditGenerated,
+            newCreditBalance,
+          },
         },
         session
       );
@@ -336,21 +321,17 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
     await session.endSession();
   }
 
-  res.status(201).json(
-    isSelfPurchase
-      ? { success: true, message: 'Self-purchased stock recorded.', purchaseID, totalAmount, selfPurchase: true }
-      : {
-          success: true,
-          message: 'Purchase recorded and stock updated.',
-          purchaseID,
-          totalAmount,
-          amountPaid: paid,
-          balanceDue,
-          creditApplied,
-          creditGenerated,
-          creditBalance: newCreditBalance,
-        }
-  );
+  res.status(201).json({
+    success: true,
+    message: 'Purchase recorded and stock updated.',
+    purchaseID,
+    totalAmount,
+    amountPaid: paid,
+    balanceDue,
+    creditApplied,
+    creditGenerated,
+    creditBalance: newCreditBalance,
+  });
 }));
 
 module.exports = router;

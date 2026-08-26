@@ -4,11 +4,13 @@ const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
 const Counter = require('../models/Counter');
+const Loss = require('../models/Loss');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { AppError } = require('../lib/errors');
 const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice, getLatestBuyingPrice } = require('../lib/pricing');
-const { createBatch, generateUniquePurchaseId } = require('../lib/costing');
+const { createBatch, generateUniquePurchaseId, consumeFIFO, disableIfDepleted } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { logAudit } = require('../lib/auditLog');
 const { isValidProductId } = require('../lib/validators');
@@ -74,7 +76,7 @@ router.get('/api/products', requireAuth, asyncHandler(async (req, res) => {
 
   const data = await Product.find(
     filter,
-    'productID productName category sellingPriceHistory buyingPriceHistory quantity reserved lowStockThreshold supplierID'
+    'productID productName category sellingPriceHistory buyingPriceHistory quantity reserved lowStockThreshold supplierID disabled'
   ).populate('supplierID', 'supplierName');
   const mapped = data.map((p) => {
     const available = p.quantity - p.reserved;
@@ -88,6 +90,7 @@ router.get('/api/products', requireAuth, asyncHandler(async (req, res) => {
       available,
       lowStockThreshold: p.lowStockThreshold,
       lowStock: available <= p.lowStockThreshold,
+      disabled: p.disabled || false,
       // Stage 20: p.supplierID is populated to {_id, supplierName} when
       // set, or null for self-purchased/no-supplier products — surfaced
       // as two plain fields so the frontend combobox doesn't need to know
@@ -135,7 +138,7 @@ router.get('/api/products/low-stock', requireAuth, requireAdmin, asyncHandler(as
 // specific actions like edits/refunds in a later stage.)
 
 router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { productId, productName, category, price, stock, supplierId, already, lowStockThreshold, cost } = req.body;
+  const { productId, productName, category, price, stock, supplierId, lowStockThreshold, cost } = req.body;
 
   if (productId && !isValidProductId(productId)) {
     return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
@@ -161,9 +164,8 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
   const beforeSnapshot = existingProduct ? existingProduct.toObject() : null;
 
   if (existingProduct) {
-    const updatedStock =
-      (isNaN(parseInt(stock)) ? 0 : parseInt(stock)) + (isNaN(parseInt(already)) ? 0 : parseInt(already));
-    existingProduct.quantity = updatedStock;
+    // final.md Stage 9: Update Product no longer touches stock at all —
+    // that's Add Stock/Deduct Stock's job now (see the two routes below).
     existingProduct.productName = productName;
     existingProduct.category = category;
     existingProduct.supplierID = resolvedSupplier.value;
@@ -244,6 +246,183 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
   }
 
   res.status(200).json({ success: true, message: 'Product saved successfully' });
+}));
+
+// final.md Stage 9 — dedicated restock action, replacing Update
+// Product's old stock field. Always self-buying (NoSupplier), same
+// pattern Stage 7 established for a brand-new product's initial stock —
+// a real supplier restock still goes through POST /supplier/purchase.
+// Also the only path that re-enables a disabled (zero-stock) product.
+router.post('/api/product/:productID/add-stock', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { productID } = req.params;
+  const { cost, quantity } = req.body;
+
+  if (!isValidProductId(productID)) {
+    return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
+  }
+  if (!Number.isFinite(Number(cost)) || Number(cost) < 0) {
+    return res.status(400).json({ success: false, message: 'Cost is required.' });
+  }
+  const qty = parseInt(quantity);
+  if (!Number.isInteger(qty) || qty < 1) {
+    return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number.' });
+  }
+  const roundedCost = roundMoney(cost);
+  const purchaseID = await generateUniquePurchaseId();
+
+  const session = await mongoose.startSession();
+  let updatedProduct;
+  try {
+    await session.withTransaction(async () => {
+      const product = await Product.findOne({ productID }).session(session);
+      if (!product) {
+        throw new AppError(404, 'Product not found.');
+      }
+      const before = product.toObject();
+      product.quantity += qty;
+      product.buyingPriceHistory.push({ price: roundedCost, date: new Date(), supplierID: null });
+      if (product.disabled) product.disabled = false;
+      await product.save({ session });
+
+      await createBatch({
+        productID,
+        supplierID: null,
+        purchaseID,
+        quantity: qty,
+        unitCost: roundedCost,
+        session,
+      });
+
+      await logAudit(
+        {
+          action: 'product.stock_added',
+          actor: { username: req.user.username, role: req.user.role },
+          targetType: 'product',
+          targetId: productID,
+          before,
+          after: product.toObject(),
+        },
+        session
+      );
+      updatedProduct = product;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  res.status(200).json({ success: true, message: 'Stock added.', quantity: updatedProduct.quantity, disabled: updatedProduct.disabled });
+}));
+
+// final.md Stage 9 — reason-coded stock write-off/return, replacing any
+// notion of freely editing quantity down. "Returned to Supplier"
+// recovers cost as supplier credit and creates no Loss entry; every
+// other reason records one (models/Loss.js), surfaced on the Dashboard/
+// Reports as of Stage 9b. Draws down FIFO cost batches the same way a
+// sale does (lib/costing.js) so the recorded cost/credit is never
+// invented for stock that has no batch behind it.
+router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { productID } = req.params;
+  const { quantity, reason, note, supplierId } = req.body;
+
+  if (!isValidProductId(productID)) {
+    return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
+  }
+  if (!Loss.REASONS.includes(reason) && reason !== 'returned_to_supplier') {
+    return res.status(400).json({ success: false, message: 'Invalid reason.' });
+  }
+  if (!note || !note.trim()) {
+    return res.status(400).json({ success: false, message: 'A note is required.' });
+  }
+  const qty = parseInt(quantity);
+  if (!Number.isInteger(qty) || qty < 1) {
+    return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number.' });
+  }
+
+  let resolvedSupplierId = null;
+  if (reason === 'returned_to_supplier') {
+    if (!supplierId || !mongoose.Types.ObjectId.isValid(supplierId)) {
+      return res.status(400).json({ success: false, message: 'A supplier is required for a Returned to Supplier deduction.' });
+    }
+    const supplierExists = await Supplier.exists({ _id: supplierId });
+    if (!supplierExists) {
+      return res.status(400).json({ success: false, message: 'Selected supplier not found.' });
+    }
+    resolvedSupplierId = supplierId;
+  }
+
+  const session = await mongoose.startSession();
+  let result;
+  try {
+    await session.withTransaction(async () => {
+      const product = await Product.findOne({ productID }).session(session);
+      if (!product) {
+        throw new AppError(404, 'Product not found.');
+      }
+      const available = product.quantity - product.reserved;
+      if (qty > available) {
+        throw new AppError(400, `Only ${available} unit(s) available to deduct — the rest is held in an open cart.`);
+      }
+      const before = product.toObject();
+
+      const fifo = await consumeFIFO(productID, qty, session);
+
+      const updated = await Product.findOneAndUpdate(
+        { _id: product._id, quantity: { $gte: qty } },
+        { $inc: { quantity: -qty } },
+        { session, new: true }
+      );
+      if (!updated) {
+        throw new AppError(409, 'Stock changed, please retry.');
+      }
+      await disableIfDepleted(updated, session);
+
+      let supplierCredited = 0;
+      if (reason === 'returned_to_supplier') {
+        supplierCredited = fifo.costAmount;
+        await Supplier.updateOne({ _id: resolvedSupplierId }, { $inc: { creditBalance: supplierCredited } }, { session });
+      } else {
+        await Loss.create(
+          [
+            {
+              productID,
+              productName: product.productName,
+              quantity: qty,
+              costValue: fifo.costAmount,
+              reason,
+              note: note.trim(),
+              actor: { username: req.user.username, role: req.user.role },
+            },
+          ],
+          { session }
+        );
+      }
+
+      await logAudit(
+        {
+          action: 'product.stock_deducted',
+          actor: { username: req.user.username, role: req.user.role },
+          targetType: 'product',
+          targetId: productID,
+          before,
+          after: {
+            ...updated.toObject(),
+            reason,
+            note: note.trim(),
+            quantityDeducted: qty,
+            costValue: fifo.costAmount,
+            ...(reason === 'returned_to_supplier' ? { supplierCredited, supplierId: resolvedSupplierId } : {}),
+          },
+        },
+        session
+      );
+
+      result = { quantity: updated.quantity, disabled: updated.disabled, costValue: fifo.costAmount, supplierCredited };
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  res.status(200).json({ success: true, message: 'Stock deducted.', ...result });
 }));
 
 router.delete('/product/:productID', requireAuth, requireAdmin, asyncHandler(async (req, res) => {

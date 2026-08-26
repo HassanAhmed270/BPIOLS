@@ -10,138 +10,67 @@ independent of `production.md`'s Stage 1–8 and the original build's
 `progress.md` numbering.
 
 No stages completed yet. `final.md` was agreed on 2026-08-24 after a
-full item-by-item discussion of Hassan's handwritten notes and
-screenshots. Three items from those notes (Exchange process improvements,
-Offline management overhaul, Dashboard offline-billing visibility) were
-deliberately left out of the initial `final.md` — see its (now resolved)
-"Deferred — not yet scoped" section — pending further detail from
-Hassan.
+full item-by-item discussion of Hassan's handwritten notes/screenshots.
 
-**2026-08-25 update:** Hassan supplied a separately-triaged document
-covering exactly those three deferred items (plus the standalone
-"where is offline data saved?" question). Merged into `final.md` as
-Stage 12 (offline draft persistence), Stage 13 (offline sync reliability
-& dashboard visibility), and Stage 14 (exchange process improvements).
-Stages 1–11 were not touched — that document's own "not covered" section
-noted it lacked context on the already-resolved #4/#7 (product
-deletion/stock-adjustment) discussion, so nothing from it was allowed to
-override Stage 9. A full coverage audit against all 16 original notebook
-items was appended to the end of `final.md`; all 16 are now accounted
-for (15 as their own stage/closed-item, #7 folded into Stage 9's scope
-rather than kept separate). `final.md` now has 14 stages; the "Deferred"
-section is empty. No code changed this update — planning only.
+**2026-08-25 update:** A separately-triaged document covering the three
+originally-deferred items (Exchange process, Offline management overhaul,
+Dashboard offline-billing visibility) plus one standalone question was
+merged into `final.md` as Stages 12–14. Stages 1–11 untouched; that
+document lacked context on the already-resolved product-deletion/
+stock-adjustment discussion, so nothing from it overrode Stage 9. All 16
+original notebook items are now accounted for across `final.md`'s 14
+stages; "Deferred" is empty. No code changed this update — planning only.
 
-**2026-08-25 — Stages 1–6 complete (condensed).**
+**2026-08-25 — Stages 1–6 complete (condensed).** Stage 1: PKR currency via
+`formatMoney()` (`Rs 1,234.50`, comma-grouped, `-Rs X.XX` negatives).
+Stage 2: sequential `#000N` product IDs server-side (`nextProductId()`/
+`models/Counter.js`, atomic, deleted IDs never reissued); ID capped at 4
+digits, no overflow guard. Stage 3: `AuditLog.jsx` flattened
+before/after diff table (`lib/flattenObject.js`) replacing raw JSON.
+Stage 4: PDF export alongside CSV for all 5 report routes
+(`lib/pdf.js`'s `sendTablePDF()`, `pdfkit`). Stage 5: toast/confirm
+infra (`sonner`, `ConfirmDialog.jsx`'s `useConfirm()`). Stage 6:
+migrated all 64 `alert()`/`confirm()` call sites across 6 pages to
+toast/`useConfirm()` — zero remain in `pages/`.
 
-**Stage 1 — Currency: PKR.** `frontend/src/lib/money.js`'s `formatMoney()`
-outputs `Rs 1,234.50` (comma thousands-grouping, `-Rs X.XX` for
-negatives). Confirmed via grep no other file has a hardcoded `$`.
+**Verified (1–6):** boot-tested each stage; `npm test` 66/66 throughout;
+`npm run build` clean; `oxlint` 0 errors (2 pre-existing unrelated
+warnings). `lib/pdf.js` also checked via a standalone script (valid PDF,
+correct `Content-Type`).
 
-**Stage 2 — Product ID auto-generation.** `POST /api/product` create
-path ignores any submitted `productId`, generates sequential `#000N` via
-`nextProductId()`, backed by new `models/Counter.js` (atomic `$inc`,
-lazily seeded from max existing `productID`) so deleted IDs are never
-reissued. Update path unchanged. `Products.jsx`: ID input removed from
-Add; Update still shows it disabled/pre-filled.
-*Known:* ID capped at 4 digits (`#0001`–`#9999`), no overflow guard.
+**Known/open (1–6):** no live DB/browser in this sandbox for any stage —
+standing constraint, not a defect. Toast/confirm and PDF layout not
+visually verified — recommend a manual click-through once merged.
 
-**Stage 3 — Audit log: flattened readable table.** New
-`frontend/src/lib/flattenObject.js` flattens nested `before`/`after`
-snapshots into `{ path, value }` rows; `AuditLog.jsx` replaced its raw
-`JSON.stringify` dump with a Field/Before/After table, differing rows
-highlighted, money/date keys formatted. No backend changes.
-
-**Stage 4 — PDF export alongside CSV.** Added `pdfkit`. New `lib/pdf.js`'s
-`sendTablePDF()` streams a landscape A4 table PDF, sharing each route's
-`{ key, label }` columns with `lib/csv.js`. `routes/export.js`: all 5
-routes gained `?format=pdf` (default CSV) via a shared `sendReport()`
-helper. `Reports.jsx` shows CSV + PDF buttons per report card.
-
-**Stage 5 — Toast & confirm-dialog infrastructure.** Added `sonner`. New
-`frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider` and
-`useConfirm()` — resolves a promise `true`/`false`, single-pending-dialog
-design, reuses the app's existing fixed-modal Tailwind pattern. `App.jsx`
-mounts `<Toaster>` and `<ConfirmProvider>` once at the root. No page call
-sites touched yet (that's Stage 6) — smoke-tested via a temporary wiring
-into `Dashboard.jsx`, then reverted byte-identical before completion.
-
-**Stage 6 — Migrate all alert()/confirm() call sites.** All 64 call
-sites across `Billing.jsx` (23), `Orders.jsx` (11), `Suppliers.jsx` (9),
-`Customers.jsx` (8), `Users.jsx` (8), `Products.jsx` (6) now use
-`toast.success()`/`toast.error()` (by message intent) and
-`await confirm(...)`. Incidental fix: added `confirm` to a `useEffect`
-dependency array in `Billing.jsx` (safe — `useConfirm()`'s return is a
-stable `useCallback`). Confirmed via `grep` zero raw `alert()`/`confirm()`
-remain in `frontend/src/pages/`.
-
-**Verified (Stages 1–6, combined):** backend boot-tested with a real
-`.env` each stage; `npm test` — all 66 tests pass unchanged throughout;
-`npm install` + `npm run build` (Vite) clean each stage; `npm run lint`
-(`oxlint`) 0 errors throughout, only 2 pre-existing `react/only-export-
-components` warnings (`useAuth`, `useConfirm`), not regressions.
-`lib/pdf.js` additionally verified via a standalone script (valid PDF,
-correct `Content-Type`). Build/test artifacts removed before packaging
-each stage.
-
-**Known/open (Stages 1–6, combined):** no live MongoDB replica set or
-live browser in this sandbox for any stage — all live-data/visual checks
-noted per-stage as not performable, a standing constraint across the
-whole project, not a defect. `lib/pdf.js`'s table layout is simple
-(fixed-width columns, ellipsis truncation, no wrapping). Toast/confirm
-UI's real rendered appearance and `useConfirm()`'s single-pending-dialog
-behavior against real overlapping-confirm scenarios were not visually/
-live verified — recommend a manual click-through once merged.
-
-**2026-08-25 — Stage 7 complete.**
+**Stage 7 complete.**
 
 **Stage 7 — Add Product: required cost, real StockBatch (self-buying
-only).** `routes/products.js`'s `POST /api/product` create path now
-requires `cost` (400 "Cost is required." if missing/non-numeric/negative
-— update path unaffected). On create: a `buyingPriceHistory` entry
-(`supplierID: null`) is always recorded, and if the submitted initial
-`stock` is positive, a matching `NoSupplier`-tagged `StockBatch` is
-created in the same transaction as the product save (via `createBatch()`
-from `lib/costing.js`, purchase ID from the newly-shared
-`generateUniquePurchaseId()`). Zero initial stock still records the cost
-basis but creates no batch — `StockBatch.quantityPurchased` requires
-`min: 1`, and there's nothing yet to batch. `frontend/src/pages/Products.jsx`:
-added a required Cost input to Add mode only (validated client-side
-before submit); Update mode is untouched, including its existing
-Supplier dropdown (that field sets `Product.supplierID`, a separate
-declarative "currently sourced from" field unrelated to purchase-batch
-creation — see Known/open below).
+only).** `routes/products.js`'s create path now requires `cost` (400 if
+missing/non-numeric/negative — update path unaffected). On create: a
+`buyingPriceHistory` entry (`supplierID: null`) always recorded; positive
+initial `stock` also creates a matching `NoSupplier`-tagged `StockBatch`
+in the same transaction (`createBatch()`, shared `generateUniquePurchaseId()`).
+Zero initial stock records cost basis but no batch
+(`StockBatch.quantityPurchased` requires `min: 1`). `Products.jsx`:
+required Cost input on Add mode only; Update mode (incl. its existing
+Supplier dropdown, a separate declarative field) untouched.
 
-**Shared-helper extraction (flagged, per `final.md`'s own "possibly...if
-extracting" note):** `generateUniquePurchaseId()` moved from
-`routes/suppliers.js` into `lib/costing.js` (now exported alongside
-`createBatch`/`consumeFIFO`/`restoreConsumption`) since both
-`routes/suppliers.js` and `routes/products.js` now need it; behavior is
-unchanged, still checks `Supplier.purchases` for collisions.
+**Shared-helper extraction (flagged, per `final.md`'s own note):**
+`generateUniquePurchaseId()` moved `routes/suppliers.js` →
+`lib/costing.js`, now shared by both purchase routes; behavior unchanged.
 
 **Incidental one-line fix:** `routes/suppliers.js` called
-`mongoose.startSession()` in `POST /supplier/purchase` without ever
-`require('mongoose')`-ing it — a pre-existing bug (would throw
-`ReferenceError` on every real purchase against a live DB, self-purchase
-or supplier). Added the missing import while touching this file for the
-shared-helper extraction above. Stated here as incidental per the
-project's own rule for one-line, obviously-correct fixes — not part of
-Stage 7's own scope, but directly adjacent to code this stage had to
-touch anyway.
+`mongoose.startSession()` without ever requiring `mongoose` — pre-existing
+bug (would `ReferenceError` on any real purchase). Added the missing
+import while in this file for the extraction above.
 
-**Flagged interpretation (not a code change, for confirmation):**
-`final.md`'s Stage 7 text says "There is intentionally no supplier
-picker on this form." Read literally this could mean removing the
-existing Supplier dropdown from Add Product entirely — but that dropdown
-is shared with Update mode (same form, same field), Stage 7's own scope
-says "Edit is unaffected," and the dropdown sets an unrelated field
-(`Product.supplierID`, the product's declared current source) rather
-than anything to do with the new cost/StockBatch logic. Interpreted this
-as: no *new* picker is needed for the batch/cost path specifically (the
-batch is always `NoSupplier`-tagged regardless of what's selected there)
-— the pre-existing dropdown was left exactly as-is. Please confirm this
-reading is correct; if Hassan actually wants the Supplier field removed
-from Add Product specifically (but kept on Update), that's a small
-follow-up, not a re-do of this stage.
+**Flagged interpretation (for confirmation):** `final.md`'s "no supplier
+picker on this form" read literally could mean removing Add Product's
+existing Supplier dropdown — but it's shared with Update mode and sets
+an unrelated field (`Product.supplierID`). Interpreted as: no *new*
+picker needed for the batch/cost path (always `NoSupplier`-tagged); the
+pre-existing dropdown left as-is. Confirm this reading, or it's a small
+follow-up, not a re-do.
 
 **Verified:**
 - Backend boot-tested with a real `.env` (server starts cleanly, both
@@ -209,3 +138,94 @@ even though the display only reads it while a product is selected.
   the same source every other admin-gated UI element in the app uses).
   Recommend a manual click-through as admin and as a non-admin role once
   merged.
+
+**2026-08-25 — Stage 9a complete (Stage 9 split into 9a/9b/9c, flagged and
+confirmed before starting; final.md itself suggested this split).**
+
+**Stage 9a — Add Stock + Deduct Stock actions, zero-stock auto-disable.**
+- `models/Product.js`: new `disabled` boolean (default false).
+- `models/Loss.js` (new): one doc per Deduct Stock write-off whose reason
+  isn't `returned_to_supplier` — `productID`, `productName`, `quantity`,
+  `costValue` (from FIFO), `reason` (`expired`/`damaged_lost`/
+  `discontinued`), `note`, `actor`, `date`. Surfacing it on Dashboard/
+  Reports is Stage 9b, not this stage — only written here.
+- `lib/costing.js`: new shared `disableIfDepleted(updated, session)` —
+  sets `Product.disabled = true` the instant a guarded decrement takes
+  `quantity` to 0. Wired into `routes/billing.js` (checkout commit loop)
+  and `lib/offlineSync.js` (offline sale commit) — both are genuine sale
+  paths that can zero out stock, so both needed it even though only
+  `routes/products.js` was in the stage's original affected-areas list;
+  flagging this as the "small, clearly-necessary addition the stage's
+  own task implies" the project rules allow proceeding on. Order
+  edit/refund never decreases a product's quantity (only restores it via
+  `applyLineReduction`), so `routes/orders.js` needed no change.
+- `routes/billing.js`: `/billing/reserve` now also guards
+  `disabled: {$ne:true}` so a disabled product can't be reserved for a
+  new cart line; its 409 response now distinguishes "not found" /
+  "disabled" / "not enough stock" for a clearer message. Removed the
+  dead `POST /billing/update` route — flagged as incidental: it was a
+  bare, reason-less quantity setter with no frontend call site
+  anywhere (confirmed via grep), and is exactly what Stage 9's own
+  completion criteria says must not exist once Deduct Stock ships.
+  Its removal also left `requireAdmin` unused in that file's import —
+  cleaned up (lint-driven, same file already being edited).
+- `routes/products.js`: Update Product's branch no longer touches
+  `quantity` at all (`stock`/`already` fully removed from that path);
+  `GET /api/products` now returns `disabled`. Two new routes:
+  `POST /api/product/:productID/add-stock` (admin, cost+quantity
+  required, always `NoSupplier`-tagged batch via the Stage 7 pattern,
+  re-enables a disabled product) and
+  `POST /api/product/:productID/deduct-stock` (admin, quantity+reason+
+  note required; `reason=returned_to_supplier` also requires a real
+  `supplierId` and credits that supplier's `creditBalance` with the
+  FIFO-recovered cost instead of writing a `Loss`; deduction is capped
+  at `quantity - reserved` so it can't pull stock out from under an open
+  cart). Both routes are transactional and audit-logged
+  (`product.stock_added`/`product.stock_deducted`).
+- `routes/suppliers.js`: `POST /supplier/purchase` now always requires a
+  real, existing supplier — rejects blank and the `NoSupplier` sentinel;
+  removed the entire `isSelfPurchase` branch (batch/audit/response paths
+  all simplified to the always-real-supplier case). Self-purchase now
+  only exists via Products' Add Stock.
+- Frontend: `Products.jsx` — Update Product's stock field/`already`
+  state removed entirely; two new dedicated forms (Add Stock, Deduct
+  Stock — the latter with a reason dropdown, conditional supplier picker
+  when "Returned to Supplier," and a confirm-dialog gate) reachable via
+  new ➕/➖ row actions; disabled products render at `opacity-50` with a
+  "Disabled" label, still fully clickable for an admin (so Add Stock can
+  re-enable them). `Suppliers.jsx` — removed the `NoSupplier` dropdown
+  option, the `isSelfPurchase`-related Amount Paid conditional, and the
+  dead `NO_SUPPLIER` const/self-purchase toast branch. `api.js` —
+  `addStock()`/`deductStock()`.
+
+**Verified:**
+- `node -c` on every touched backend file — all pass.
+- `npm test` — all 66 existing tests pass unchanged (before and after the
+  post-lint `requireAdmin` cleanup in `routes/billing.js`).
+- `npx oxlint` on all touched files — 0 errors; 2 pre-existing unrelated
+  warnings left alone (`StockBatch` unused in `suppliers.js`,
+  `isValidDiscount` unused in `orders.js` — both predate this stage, out
+  of scope).
+- Backend boot-tested twice with a real `.env`: server starts cleanly;
+  `GET /api/products`, both new product routes, `POST /supplier/purchase`,
+  and `POST /billing/reserve` all correctly 401 with no token (confirms
+  mounting/auth-gating); `POST /billing/update` now correctly 404s
+  (route removed).
+- `npm run build` (Vite) — clean, no errors.
+- Artifacts (`node_modules` both locations, `frontend/dist`, `.env`)
+  removed after verification.
+
+**Known/open:**
+- No live MongoDB replica set in this sandbox — boot tests confirm
+  routing/auth/validation, not full transactional behavior against real
+  data (FIFO consumption math, supplier credit increments, Loss writes,
+  auto-disable/re-enable end-to-end). Recommend running through Add
+  Stock → Deduct Stock (each reason) → re-Add Stock on a real product
+  once merged, watching `Product.disabled`, `StockBatch`, `Loss`, and
+  `Supplier.creditBalance`.
+- No live browser — new Products.jsx forms/row actions and the disabled-
+  row styling are code-reviewed only, not visually confirmed.
+- Stage 9b (Loss surfaced on Dashboard + a Reports export) and Stage 9c
+  (hard-delete rework: only reachable at zero stock, routed through a
+  reason form) are still open — do not start either until explicitly
+  requested; this entry covers 9a only.

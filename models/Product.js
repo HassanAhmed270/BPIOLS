@@ -48,7 +48,14 @@ const productSchema = new Schema({
   // historical snapshot that does not change retroactively when this
   // field does.
   supplierID: { type: Schema.Types.ObjectId, ref: 'Supplier', default: null },
-  hidden: { type: Boolean, default: false }
+  hidden: { type: Boolean, default: false },
+  // final.md Stage 9 — set true whenever quantity reaches 0 (sale,
+  // offline sync, or a Deduct Stock action), false again the moment the
+  // product is restocked via Add Stock. A disabled product stays fully
+  // visible/historical everywhere (Products list, past orders) but can
+  // no longer be selected for a new bill — see routes/billing.js's
+  // /billing/reserve guard and lib/costing.js's disableIfDepleted().
+  disabled: { type: Boolean, default: false }
 });
 
 // Stage 3: category is searched via regex in /api/products' $or filter

@@ -56,6 +56,10 @@ export const api = {
   saveProduct: (payload) => request('/api/product', { method: 'POST', body: JSON.stringify(payload) }),
   undoProduct: (payload) => request('/product/undo', { method: 'POST', body: JSON.stringify(payload) }),
   deleteProduct: (productId) => request(`/product/${encodeURIComponent(productId)}`, { method: 'DELETE' }),
+  // Stage 9 (final.md) — dedicated restock/write-off actions, replacing
+  // Update Product's old stock field.
+  addStock: (productId, payload) => request(`/api/product/${encodeURIComponent(productId)}/add-stock`, { method: 'POST', body: JSON.stringify(payload) }),
+  deductStock: (productId, payload) => request(`/api/product/${encodeURIComponent(productId)}/deduct-stock`, { method: 'POST', body: JSON.stringify(payload) }),
   reserveStock: (productId, quantity) => request('/billing/reserve', { method: 'POST', body: JSON.stringify({ productId, quantity }) }),
   releaseStock: (productId, quantity) => request('/billing/release', { method: 'POST', body: JSON.stringify({ productId, quantity }) }),
 

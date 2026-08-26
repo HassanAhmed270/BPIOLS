@@ -10,12 +10,10 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 
-// Stage 20: the self-purchased/no-supplier sentinel — must match
-// NO_SUPPLIER in main.js exactly, same pattern as WALKIN_CUSTOMER
-// (Stage 19). Sent straight through as `supplierName`; main.js's
-// POST /supplier/purchase special-cases this exact string to skip the
-// Supplier lookup/purchase record entirely instead of 404ing.
-const NO_SUPPLIER = 'NoSupplier';
+// final.md Stage 9 removed the self-purchase ("NoSupplier") option from
+// this form entirely — self-purchase now lives on the Products page's
+// dedicated Add Stock action instead. Supplier Purchase always requires
+// a real, existing supplier.
 const emptySupplierForm = { supplierName: '', contactPerson: '', phone: '', email: '', address: '' };
 const emptyPurchaseForm = { supplierName: '', productId: '', quantity: '', unitCost: '', sellingPrice: '', amountPaid: '' };
 const PAGE_SIZE = 10;
@@ -94,10 +92,9 @@ export default function Suppliers() {
   // Shown next to the Amount Paid field purely informationally — the
   // admin can see this supplier already has credit and choose to pay
   // less themselves, but the auto-fill above never uses it.
-  const selectedSupplierCredit =
-    purchaseForm.supplierName && purchaseForm.supplierName !== NO_SUPPLIER
-      ? allSuppliers.find((s) => s.supplierName === purchaseForm.supplierName)?.creditBalance ?? 0
-      : 0;
+  const selectedSupplierCredit = purchaseForm.supplierName
+    ? allSuppliers.find((s) => s.supplierName === purchaseForm.supplierName)?.creditBalance ?? 0
+    : 0;
 
   const loadSuppliers = async () => {
     setLoading(true);
@@ -203,27 +200,23 @@ export default function Suppliers() {
         items: [{ productID: productId, quantity: qty, unitCost: cost, ...(sp !== undefined ? { sellingPrice: sp } : {}) }],
         amountPaid: parseFloat(amountPaid) || 0,
       });
-      if (data.selfPurchase) {
-        toast.success(`Purchase ${data.purchaseID} recorded (self-purchased, no supplier balance).`);
-      } else {
-        // Stage 21 credit fix: surface both sides plainly — what's still
-        // owed on this purchase, and (if this payment covered more than
-        // was owed, after any existing credit was already applied) the
-        // supplier's new running credit that'll offset their next
-        // purchase automatically.
-        const lines = [`Purchase ${data.purchaseID} recorded.`];
-        if (data.creditApplied > 0) {
-          lines.push(`${formatMoney(data.creditApplied)} of existing credit was used toward this purchase.`);
-        }
-        lines.push(`Balance due to supplier: ${formatMoney(data.balanceDue)}`);
-        if (data.creditGenerated > 0) {
-          lines.push(`${formatMoney(data.creditGenerated)} of what you paid went beyond what was owed and became new credit.`);
-        }
-        if (data.creditBalance > 0) {
-          lines.push(`Supplier now has ${formatMoney(data.creditBalance)} credit total, which will reduce their next purchase automatically.`);
-        }
-        toast.success(lines.join(' '));
+      // Stage 21 credit fix: surface both sides plainly — what's still
+      // owed on this purchase, and (if this payment covered more than
+      // was owed, after any existing credit was already applied) the
+      // supplier's new running credit that'll offset their next
+      // purchase automatically.
+      const lines = [`Purchase ${data.purchaseID} recorded.`];
+      if (data.creditApplied > 0) {
+        lines.push(`${formatMoney(data.creditApplied)} of existing credit was used toward this purchase.`);
       }
+      lines.push(`Balance due to supplier: ${formatMoney(data.balanceDue)}`);
+      if (data.creditGenerated > 0) {
+        lines.push(`${formatMoney(data.creditGenerated)} of what you paid went beyond what was owed and became new credit.`);
+      }
+      if (data.creditBalance > 0) {
+        lines.push(`Supplier now has ${formatMoney(data.creditBalance)} credit total, which will reduce their next purchase automatically.`);
+      }
+      toast.success(lines.join(' '));
       autoFilledPaid.current = '';
       setPurchaseForm(emptyPurchaseForm);
       await reloadEverything();
@@ -437,7 +430,6 @@ export default function Suppliers() {
                   className="border rounded px-3 py-2 w-full"
                 >
                   <option value="">Select supplier</option>
-                  <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
                   {allSuppliers.map((s) => (
                     <option key={s.supplierName} value={s.supplierName}>{s.supplierName}</option>
                   ))}
@@ -500,24 +492,22 @@ export default function Suppliers() {
                   className="border rounded px-3 py-2 w-full"
                 />
               </div>
-              {purchaseForm.supplierName !== NO_SUPPLIER && (
-                <div>
-                  <label className="block mb-1 font-medium">Amount Paid</label>
-                  <p className="text-xs text-gray-500 mb-1">
-                    Auto-fills as quantity × cost — edit for a partial payment or overpayment.
-                    {selectedSupplierCredit > 0 && ` This supplier has ${formatMoney(selectedSupplierCredit)} credit — pay less if you want to use it.`}
-                  </p>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={purchaseForm.amountPaid}
-                    onChange={(e) => setPurchaseForm({ ...purchaseForm, amountPaid: e.target.value })}
-                    placeholder="0 = nothing paid yet"
-                    className="border rounded px-3 py-2 w-full"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block mb-1 font-medium">Amount Paid</label>
+                <p className="text-xs text-gray-500 mb-1">
+                  Auto-fills as quantity × cost — edit for a partial payment or overpayment.
+                  {selectedSupplierCredit > 0 && ` This supplier has ${formatMoney(selectedSupplierCredit)} credit — pay less if you want to use it.`}
+                </p>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={purchaseForm.amountPaid}
+                  onChange={(e) => setPurchaseForm({ ...purchaseForm, amountPaid: e.target.value })}
+                  placeholder="0 = nothing paid yet"
+                  className="border rounded px-3 py-2 w-full"
+                />
+              </div>
               <div className="md:col-span-6">
                 <button type="submit" className="px-4 py-2 bg-brand-green text-white rounded hover:bg-green-700">
                   Record Purchase

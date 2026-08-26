@@ -2,9 +2,8 @@
 
 The `production.md` phase (Stage 1–8) is complete and merged. This
 repository is now in a separate **final-fixes phase**, defined by
-`final.md`. The app remains feature-complete; current work is a further
-round of correctness, UX, and workflow fixes Hassan identified after the
-production-hardening phase closed.
+`final.md`. The app remains feature-complete; current work is further
+correctness/UX/workflow fixes identified after production-hardening closed.
 
 ## Document authority
 
@@ -40,8 +39,11 @@ independent stage-numbering sequences exist in this repo: this phase,
 - An unrelated one-line, obviously-correct fix may be made inline, stated
   as incidental. Otherwise flag unrelated issues instead of fixing them.
 - Do not refactor or "improve while you're here."
-- If a stage becomes too large (Stage 9 is flagged as the likeliest
-  candidate), flag it and split rather than push through oversized.
+- If a stage becomes too large, flag it and split rather than push
+  through oversized. Stage 9 did this: **9a** (Add/Deduct Stock,
+  zero-stock auto-disable — done), **9b** (Loss on Dashboard/Reports —
+  pending), **9c** (hard-delete rework — pending). Treat 9b/9c as the
+  next `final.md` work, not a new stage number.
 - `final.md`'s "Deferred" section is currently empty — all originally-
   deferred items are now scoped as Stages 12–14. Newly raised items go
   there first, then get promoted to a numbered stage.
@@ -144,19 +146,15 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2). Stage 9 adds a new Loss-tracking model/collection (exact shape
-left to implementation).
+(Stage 2), `Loss` (Stage 9a — one entry per Deduct Stock write-off; see
+below).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
 
-- Product/order business IDs use `#0000`-style identifiers; do not
-  confuse them with Mongo `_id`. Add Product no longer accepts a typed
-  `productId` — create always generates the next sequential `#000N`
-  server-side via `nextProductId()` (`routes/products.js`), backed by
-  `models/Counter.js` (deleted IDs never reissued). Update path
-  unchanged (looks up by submitted `productId`, ID shown disabled/
-  pre-filled). Create response includes the generated `productId`.
+- Product/order business IDs use `#0000`-style identifiers, distinct
+  from Mongo `_id`. Add Product generates `#000N` server-side via
+  `nextProductId()`/`models/Counter.js` (deleted IDs never reissued).
 - Product prices are history arrays; read them through `lib/pricing.js`.
 - Stock availability accounts for `reserved`.
 - Checkout uses persisted `PendingBill` data and server-side price/
@@ -164,19 +162,31 @@ current state of any item flagged as changing under a specific stage):
   sentinel and remain real audited orders without a customer credit
   record.
 - `Product.supplierID` is an optional `Supplier` ObjectId; `NoSupplier`
-  is the self-purchase sentinel. `final.md` Stage 9 removes it as a
-  selectable option on Supplier Purchase — self-purchase still exists,
-  but only via the dedicated Add Stock/Add Product flows.
-- Restocking and checkout use transactions. FIFO stock costing is
-  handled through `StockBatch` and `lib/costing.js`. Historically, plain
-  Product-form stock additions were left un-batched (no cost input
-  existed on that form). Stage 7 ends that for Add Product: Cost is now
-  required on the create path, and any positive initial stock creates a
-  matching `NoSupplier`-tagged `StockBatch` (zero stock still records a
-  `buyingPriceHistory` entry but no batch — `quantityPurchased` requires
-  `min: 1`). Update Product's `stock`/`already` path is unchanged.
-  `final.md` Stage 9 does the same for restocking via a new Add Stock
-  action, after which Update Product has no stock field at all.
+  is the self-purchase sentinel. Stage 9a removed it as a selectable
+  option on Supplier Purchase (`POST /supplier/purchase` now always
+  requires a real supplier) — self-purchase now lives only on Add Stock.
+- Restocking/checkout use transactions; FIFO costing via `StockBatch`/
+  `lib/costing.js`. Stage 7 made Cost required on Add Product's create
+  path. Stage 9a: Update Product has no stock field at all anymore
+  (name/price/category/supplier/threshold only); restocking goes through
+  **Add Stock** (`POST /api/product/:productID/add-stock`, admin-only,
+  cost+quantity required, always self-buying/`NoSupplier`) instead. A
+  parallel **Deduct Stock** action
+  (`POST /api/product/:productID/deduct-stock`) removes stock with a
+  required reason
+  (`expired`/`returned_to_supplier`/`damaged_lost`/`discontinued`) +
+  note; draws down FIFO batches via `consumeFIFO()` for cost, same as a
+  sale. `returned_to_supplier` credits the chosen supplier's
+  `creditBalance` with recovered cost, no `Loss`; every other reason
+  writes one `Loss` doc. The dead `POST /billing/update` (reason-less
+  quantity setter, unreachable from any frontend call) was removed here.
+- **Zero-stock auto-disable** (Stage 9a): `lib/costing.js`'s
+  `disableIfDepleted()` sets `Product.disabled` true the instant
+  `quantity` hits 0 — called after checkout, offline sync, and Deduct
+  Stock decrements. Only Add Stock clears it. Disabled products stay
+  fully visible (greyed out) but `POST /billing/reserve` won't reserve
+  one. Hard-delete rework (only reachable at zero stock) is Stage 9c,
+  not yet done.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table via
@@ -199,9 +209,10 @@ current state of any item flagged as changing under a specific stage):
   `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
   `Refund.settlement`/`creditGenerated` carry this at each level.
   `recomputeOrderTotals` returns the settlement amount freed up rather
-  than letting it vanish behind `balanceDue`'s clamp-to-zero. `final.md`
-  Stage 9 adds a second, distinct credit path (Deduct Stock, reason
-  "Returned to Supplier", adjusts *supplier* credit) — keep separate.
+  than letting it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a
+  adds a second, distinct credit path — Deduct Stock's
+  `returned_to_supplier` reason adjusts *supplier* credit, not customer —
+  keep the two separate.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
   (`/api/users/me/password`, any role); every password write refreshes
@@ -209,34 +220,23 @@ current state of any item flagged as changing under a specific stage):
   blocked. `Users.jsx` at `/workers` (admin-only, `AdminRoute`) is the
   only UI surface; this gating was reviewed and confirmed sufficient.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
-  `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` — duplicated
-  as a local const (not exported); keep both in sync if it ever changes.
-  Offline sync does not apply customer credit. `final.md` Stages 12–13
-  cover: a `drafts` IndexedDB store so a cart survives a reload mid-build,
-  a `~1min` reconnect delay before auto-flushing, a sync overlay, a
-  bounded-retry post-sync existence check, and an `Order.offlineOrigin`
-  flag — none change the queue's own commit/transaction/replay logic.
+  `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
+  zero-stock auto-disable (Stage 9a's `disableIfDepleted()`) — keep in
+  sync if either changes. Does not apply customer credit. `final.md`
+  Stages 12–13 (pending) add offline-queue UX only, not commit logic.
 - `POST /product/undo` validates `productId` with `isValidProductId()`
-  the same way `POST /api/product`'s update path does (its create path,
-  as of Stage 2, does not require a submitted `productId` at all).
-- `loginLimiter` (`middleware/rateLimit.js`) is `max: 20` per 15-minute
-  window, `skipSuccessfulRequests: true` — tuned for a single shared shop
-  IP.
-- Billing's cart summary/receipt (`printReceiptFor`, not Special Bill)
-  show a "Discount" line above Grand Total when >0. `final.md` Stage 10
-  restyles the on-screen item table (stacked lines, not 8 columns) only.
-- `lib/reports.js`'s `getDashboardSummary` derives `refundedOrders` and
-  `refundedAmount` from one `Refund.aggregate` scoped by `refundDate`, so
-  both always agree on the same date range.
+  the same way `POST /api/product`'s update path does.
+- `loginLimiter` (`middleware/rateLimit.js`): `max: 20`/15min,
+  `skipSuccessfulRequests: true` — tuned for a single shared shop IP.
+- `lib/reports.js`'s `getDashboardSummary` derives `refundedOrders`/
+  `refundedAmount` from one `Refund.aggregate` scoped by `refundDate`.
 
 ## Request flow
 
-1. `/auth/*` → `routes/auth.js`.
-2. `/api/export/*` and `/api/sync/*` → optional modules when enabled.
-3. Other `/api`, `/billing`, `/product`, `/customer`, `/supplier`, and
-   `/dashboard/load` paths → the domain route files under `routes/`.
-4. Other GET requests serve the built React SPA.
-5. Unmatched `/api/*` and `/auth/*` requests return JSON 404s.
+`/auth/*` → `routes/auth.js`. `/api/export/*`/`/api/sync/*` → optional
+feature-flagged modules. Other `/api`, `/billing`, `/product`,
+`/customer`, `/supplier`, `/dashboard/load` → domain route files. Other
+GET → built React SPA. Unmatched `/api/*`/`/auth/*` → JSON 404.
 
 Backend authorization is the real security boundary; frontend admin
 gating is UX only.

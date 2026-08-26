@@ -5,12 +5,12 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Customer = require('../models/Customers');
 const PendingBill = require('../models/PendingBill');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { AppError } = require('../lib/errors');
 const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice } = require('../lib/pricing');
-const { consumeFIFO, deriveCostSource } = require('../lib/costing');
+const { consumeFIFO, deriveCostSource, disableIfDepleted } = require('../lib/costing');
 const { logAudit } = require('../lib/auditLog');
 const { isValidProductId, isValidOrderId, isValidDiscount, isValidEmail, isValidPhone } = require('../lib/validators');
 const logger = require('../lib/logger');
@@ -48,6 +48,10 @@ router.post('/billing/reserve', requireAuth, asyncHandler(async (req, res) => {
   const updated = await Product.findOneAndUpdate(
     {
       productID: productId,
+      // final.md Stage 9: a disabled (zero-stock) product can never be
+      // reserved for a new cart, even if this exact check somehow raced
+      // past the quantity guard below — belt and suspenders.
+      disabled: { $ne: true },
       // quantity - reserved >= qty, evaluated atomically as part of the match
       $expr: { $gte: [{ $subtract: ['$quantity', '$reserved'] }, qty] },
     },
@@ -56,12 +60,13 @@ router.post('/billing/reserve', requireAuth, asyncHandler(async (req, res) => {
   );
 
   if (!updated) {
-    // Either the product doesn't exist, or there isn't enough available —
-    // tell them apart only for a clearer message, no behavior difference.
-    const exists = await Product.exists({ productID: productId });
+    // Either the product doesn't exist, is disabled, or there isn't
+    // enough available — tell them apart only for a clearer message, no
+    // behavior difference.
+    const existing = await Product.findOne({ productID: productId }).select('disabled');
     return res.status(409).json({
       success: false,
-      message: exists ? 'Not enough stock available.' : 'Product not found.',
+      message: !existing ? 'Product not found.' : existing.disabled ? 'This product is disabled (out of stock).' : 'Not enough stock available.',
     });
   }
 
@@ -105,28 +110,6 @@ router.post('/billing/release', requireAuth, asyncHandler(async (req, res) => {
     reserved: updated.reserved,
     available: updated.quantity - updated.reserved,
   });
-}));
-
-// Manual stock correction (admin only) — e.g. a damaged-goods write-off or
-// a physical stocktake adjustment. NOT part of the checkout flow anymore:
-// checkout commits stock atomically inside POST /billing/orderDetails's
-// transaction. Setting quantity directly here also implicitly changes
-// availability (quantity - reserved), so this is intentionally gated
-// tighter than the rest of the mutating routes.
-router.post('/billing/update', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { productId, stock } = req.body;
-
-  if (!isValidProductId(productId)) {
-    return res.status(400).json({ success: false, message: 'Invalid product ID.' });
-  }
-
-  const existingProduct = await Product.findOne({ productID: productId });
-  if (existingProduct) {
-    existingProduct.quantity = isNaN(parseInt(stock)) ? 0 : parseInt(stock);
-    await existingProduct.save();
-  }
-
-  res.status(201).json({ ok: true, message: 'Stock updated successfully!' });
 }));
 
 // ── Draft bills (Stage 4) ───────────────────────────────────
@@ -307,6 +290,7 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
         if (!updated) {
           throw new AppError(409, `Stock for ${p.productID} could not be confirmed. Please refresh and try again.`);
         }
+        await disableIfDepleted(updated, session);
 
         // Stage 22: record which cost batch(es) this line's units
         // actually came from (FIFO — oldest batch first), so the
