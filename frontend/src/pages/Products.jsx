@@ -10,15 +10,8 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 
-// Stage 20: the self-purchased/no-supplier sentinel — must match
-// NO_SUPPLIER in main.js exactly, since this string is sent straight
-// through as `supplierId` (main.js's resolveSupplierId() treats it the
-// same as an empty value: stored as null, no Supplier record required).
 const NO_SUPPLIER = 'NoSupplier';
 const emptyForm = { productId: '', productName: '', category: '', price: '', stock: '', cost: '', supplierId: NO_SUPPLIER, lowStockThreshold: '' };
-// final.md Stage 9 — Add Stock and Deduct Stock are separate dedicated
-// actions now, each with their own small form, distinct from `form`
-// (Add/Update Product, name+price only as of this stage).
 const emptyStockForm = { productId: '', productName: '', cost: '', quantity: '' };
 const REASON_OPTIONS = [
   { value: 'expired', label: 'Expired' },
@@ -27,8 +20,6 @@ const REASON_OPTIONS = [
   { value: 'discontinued', label: 'Discontinued' },
 ];
 const emptyDeductForm = { productId: '', productName: '', available: 0, quantity: '', reason: '', supplierId: '', note: '' };
-// final.md Stage 9c — hard delete now opens the same reason form as
-// Deduct Stock, only reachable once quantity is already 0.
 const emptyDeleteForm = { productId: '', productName: '', category: '', price: 0, supplierId: NO_SUPPLIER, lowStockThreshold: 10, reason: '', note: '' };
 const PAGE_SIZE = 10;
 
@@ -39,27 +30,18 @@ export default function Products() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  // Full, unpaginated supplier list — used only to populate the Supplier
-  // combobox below (Stage 20), same pattern as Suppliers.jsx's
-  // allSuppliers/allProducts dropdown data.
   const [allSuppliers, setAllSuppliers] = useState([]);
-
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
   const [sortBy, setSortBy] = useState('productID');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
-
   const [selectedId, setSelectedId] = useState(null);
-  const [mode, setMode] = useState('add'); // 'add' | 'update' | 'addstock' | 'deductstock' | 'delete'
+  const [mode, setMode] = useState('add');
   const [form, setForm] = useState(emptyForm);
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [deductForm, setDeductForm] = useState(emptyDeductForm);
   const [deleteForm, setDeleteForm] = useState(emptyDeleteForm);
-  // Previous selling price for the product currently being edited (Stage
-  // 13, admin-only) — shown next to the new-price input so an admin can
-  // see what it was vs. what they're about to set it to. null in 'add'
-  // mode since there's no previous price yet.
   const [previousPrice, setPreviousPrice] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [showUndo, setShowUndo] = useState(false);
@@ -96,8 +78,6 @@ export default function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, sortBy, sortDir, page]);
 
-  // A new search or sort invalidates the current page — go back to page 1
-  // rather than showing an empty "page 4 of 1" after narrowing results.
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -377,289 +357,319 @@ export default function Products() {
               </div>
 
               {isAdmin && (mode === 'add' || mode === 'update') && (
-              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-blue-600 font-bold mb-4">
-                  {mode === 'add' ? 'New Product' : 'Update Product'}
-                </h2>
-                <form onSubmit={handleSubmit} className="space-y-4 w-full">
-                  {mode === 'update' && (
-                    <div>
-                      <label className="block mb-1 font-medium">Product ID</label>
-                      <input
-                        type="text"
-                        value={form.productId}
-                        disabled
-                        className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70"
-                      />
-                    </div>
-                  )}
-                  <div>
-                    <label className="block mb-1 font-medium">Product Name</label>
-                    <input
-                      type="text"
-                      value={form.productName}
-                      onChange={(e) => setForm({ ...form, productName: e.target.value })}
-                      placeholder="Enter product name"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Category</label>
-                    <input
-                      type="text"
-                      value={form.category}
-                      onChange={(e) => setForm({ ...form, category: e.target.value })}
-                      placeholder="Enter category"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Selling Price</label>
-                    {isAdmin && mode === 'update' && (
-                      <p className="text-xs text-gray-500 mb-1">
-                        Previous selling price: <span className="font-medium text-gray-700">{formatMoney(previousPrice ?? 0)}</span>
-                      </p>
-                    )}
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={form.price}
-                      onChange={(e) => setForm({ ...form, price: e.target.value })}
-                      placeholder="Enter selling price"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  {mode === 'add' && (
-                    <>
+                <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                  <h2 className={`text-2xl flex justify-center font-bold mb-4 ${mode === 'add' ? 'text-blue-600' : 'text-yellow-600'}`}>
+                    {mode === 'add' ? 'Add New Product' : 'Update Product'}
+                  </h2>
+                  <form onSubmit={handleSubmit} className="space-y-4 w-full">
+                    {mode === 'update' && (
                       <div>
-                        <label className="block mb-1 font-medium">Cost</label>
+                        <label className="block mb-1 font-medium">Product ID</label>
+                        <input
+                          type="text"
+                          value={form.productId}
+                          disabled
+                          className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70"
+                        />
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block mb-1 font-medium">Product Name</label>
+                        <input
+                          type="text"
+                          value={form.productName}
+                          onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                          placeholder="Enter product name"
+                          className="border rounded px-3 py-2 w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 font-medium">Category</label>
+                        <input
+                          type="text"
+                          value={form.category}
+                          onChange={(e) => setForm({ ...form, category: e.target.value })}
+                          placeholder="Enter category"
+                          className="border rounded px-3 py-2 w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div className={mode === 'add' ? 'grid grid-cols-2 gap-4' : ''}>
+                      <div>
+                        <label className="block mb-1 font-medium">Selling Price</label>
+                        {isAdmin && mode === 'update' && (
+                          <p className="text-xs text-gray-500 mb-1">
+                            Previous: <span className="font-medium text-gray-700">{formatMoney(previousPrice ?? 0)}</span>
+                          </p>
+                        )}
                         <input
                           type="number"
                           step="0.01"
                           min="0"
-                          value={form.cost}
-                          onChange={(e) => setForm({ ...form, cost: e.target.value })}
-                          placeholder="Enter cost"
+                          value={form.price}
+                          onChange={(e) => setForm({ ...form, price: e.target.value })}
+                          placeholder="Enter selling price"
                           className="border rounded px-3 py-2 w-full"
                         />
                       </div>
-                      <div>
-                        <label className="block mb-1 font-medium">Stock</label>
-                        <input
-                          type="number"
-                          value={form.stock}
-                          onChange={(e) => setForm({ ...form, stock: e.target.value })}
-                          placeholder="Enter stock"
-                          className="border rounded px-3 py-2 w-full"
-                        />
-                      </div>
-                    </>
-                  )}
-                  <div>
-                    <label className="block mb-1 font-medium">Supplier</label>
-                    <select
-                      value={form.supplierId}
-                      onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
-                      className="border rounded px-3 py-2 w-full"
-                    >
-                      <option value={NO_SUPPLIER}>Buy Myself / Self Purchased</option>
-                      {allSuppliers.map((s) => (
-                        <option key={s._id} value={s._id}>{s.supplierName}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Low Stock Alert Threshold</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.lowStockThreshold}
-                      onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
-                      placeholder="10"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Row highlights red once available stock drops to this number or below.</p>
-                  </div>
 
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-green-700">
-                      {mode === 'add' ? 'Add Product' : 'Update Product'}
-                    </button>
-                    {mode === 'update' && (
-                      <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                        Cancel
-                      </button>
+                      {mode === 'add' && (
+                        <div>
+                          <label className="block mb-1 font-medium">Cost</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={form.cost}
+                            onChange={(e) => setForm({ ...form, cost: e.target.value })}
+                            placeholder="Enter cost"
+                            className="border rounded px-3 py-2 w-full"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {mode === 'add' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block mb-1 font-medium">Stock</label>
+                          <input
+                            type="number"
+                            value={form.stock}
+                            onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                            placeholder="Enter stock"
+                            className="border rounded px-3 py-2 w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="block mb-1 font-medium">Supplier</label>
+                          <select
+                            value={form.supplierId}
+                            onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+                            className="border rounded px-3 py-2 w-full"
+                          >
+                            <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
+                            {allSuppliers.map((s) => (
+                              <option key={s._id} value={s._id}>{s.supplierName}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
                     )}
-                  </div>
-                </form>
-              </div>
+
+                    {mode === 'update' && (
+                      <div>
+                        <label className="block mb-1 font-medium">Supplier</label>
+                        <select
+                          value={form.supplierId}
+                          onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+                          className="border rounded px-3 py-2 w-full"
+                        >
+                          <option value={NO_SUPPLIER}>Buy Myself / Self Purchased</option>
+                          {allSuppliers.map((s) => (
+                            <option key={s._id} value={s._id}>{s.supplierName}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block mb-1 font-medium">Low Stock Alert Threshold</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.lowStockThreshold}
+                        onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
+                        placeholder="10"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Row highlights red once available stock drops to this number or below.</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        className={`px-4 py-2 text-white rounded ${mode === 'add' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
+                      >
+                        {mode === 'add' ? 'Add Product' : 'Update Product'}
+                      </button>
+
+                      {mode === 'update' && (
+                        <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </div>
               )}
 
               {isAdmin && mode === 'addstock' && (
-              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">Add Stock</h2>
-                <form onSubmit={handleAddStockSubmit} className="space-y-4 w-full">
-                  <div>
-                    <label className="block mb-1 font-medium">Product</label>
-                    <input type="text" value={`${stockForm.productId} — ${stockForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Cost</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={stockForm.cost}
-                      onChange={(e) => setStockForm({ ...stockForm, cost: e.target.value })}
-                      placeholder="Enter cost"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Quantity</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={stockForm.quantity}
-                      onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })}
-                      placeholder="Enter quantity"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Always self-purchased — for a real supplier restock, use Suppliers &gt; Record a Purchase instead.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-green-700">Add Stock</button>
-                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
-                  </div>
-                </form>
-              </div>
+                <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                  <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">Add Stock</h2>
+                  <form onSubmit={handleAddStockSubmit} className="space-y-4 w-full">
+                    <div>
+                      <label className="block mb-1 font-medium">Product</label>
+                      <input type="text" value={`${stockForm.productId} — ${stockForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Cost</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={stockForm.cost}
+                        onChange={(e) => setStockForm({ ...stockForm, cost: e.target.value })}
+                        placeholder="Enter cost"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Quantity</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={stockForm.quantity}
+                        onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })}
+                        placeholder="Enter quantity"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Always self-purchased — for a real supplier restock, use Suppliers &gt; Record a Purchase instead.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-green-700">Add Stock</button>
+                      <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+                    </div>
+                  </form>
+                </div>
               )}
 
               {isAdmin && mode === 'deductstock' && (
-              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-orange-600 font-bold mb-4">Deduct Stock</h2>
-                <form onSubmit={handleDeductStockSubmit} className="space-y-4 w-full">
-                  <div>
-                    <label className="block mb-1 font-medium">Product</label>
-                    <input type="text" value={`${deductForm.productId} — ${deductForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
-                    <p className="text-xs text-gray-500 mt-1">Available: {deductForm.available}</p>
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Quantity</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max={deductForm.available}
-                      value={deductForm.quantity}
-                      onChange={(e) => setDeductForm({ ...deductForm, quantity: e.target.value })}
-                      placeholder="Enter quantity"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Reason</label>
-                    <select
-                      value={deductForm.reason}
-                      onChange={(e) => setDeductForm({ ...deductForm, reason: e.target.value, supplierId: '' })}
-                      className="border rounded px-3 py-2 w-full"
-                    >
-                      <option value="">Select reason</option>
-                      {REASON_OPTIONS.map((r) => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {deductForm.reason === 'returned_to_supplier' && (
+                <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                  <h2 className="text-2xl flex justify-center text-orange-600 font-bold mb-4">Deduct Stock</h2>
+                  <form onSubmit={handleDeductStockSubmit} className="space-y-4 w-full">
                     <div>
-                      <label className="block mb-1 font-medium">Supplier</label>
+                      <label className="block mb-1 font-medium">Product</label>
+                      <input type="text" value={`${deductForm.productId} — ${deductForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                      <p className="text-xs text-gray-500 mt-1">Available: {deductForm.available}</p>
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Quantity</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={deductForm.available}
+                        value={deductForm.quantity}
+                        onChange={(e) => setDeductForm({ ...deductForm, quantity: e.target.value })}
+                        placeholder="Enter quantity"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Reason</label>
                       <select
-                        value={deductForm.supplierId}
-                        onChange={(e) => setDeductForm({ ...deductForm, supplierId: e.target.value })}
+                        value={deductForm.reason}
+                        onChange={(e) => setDeductForm({ ...deductForm, reason: e.target.value, supplierId: '' })}
                         className="border rounded px-3 py-2 w-full"
                       >
-                        <option value="">Select supplier</option>
-                        {allSuppliers.map((s) => (
-                          <option key={s._id} value={s._id}>{s.supplierName}</option>
+                        <option value="">Select reason</option>
+                        {REASON_OPTIONS.map((r) => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
                         ))}
                       </select>
-                      <p className="text-xs text-gray-500 mt-1">Recovered cost is credited to this supplier's balance — no loss is recorded.</p>
                     </div>
-                  )}
-                  <div>
-                    <label className="block mb-1 font-medium">Note</label>
-                    <input
-                      type="text"
-                      value={deductForm.note}
-                      onChange={(e) => setDeductForm({ ...deductForm, note: e.target.value })}
-                      placeholder="Explain why this stock is being removed"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">Deduct Stock</button>
-                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
-                  </div>
-                </form>
-              </div>
+                    {deductForm.reason === 'returned_to_supplier' && (
+                      <div>
+                        <label className="block mb-1 font-medium">Supplier</label>
+                        <select
+                          value={deductForm.supplierId}
+                          onChange={(e) => setDeductForm({ ...deductForm, supplierId: e.target.value })}
+                          className="border rounded px-3 py-2 w-full"
+                        >
+                          <option value="">Select supplier</option>
+                          {allSuppliers.map((s) => (
+                            <option key={s._id} value={s._id}>{s.supplierName}</option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">Recovered cost is credited to this supplier's balance — no loss is recorded.</p>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block mb-1 font-medium">Note</label>
+                      <input
+                        type="text"
+                        value={deductForm.note}
+                        onChange={(e) => setDeductForm({ ...deductForm, note: e.target.value })}
+                        placeholder="Explain why this stock is being removed"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">Deduct Stock</button>
+                      <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+                    </div>
+                  </form>
+                </div>
               )}
 
               {isAdmin && mode === 'delete' && (
-              <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-red-600 font-bold mb-4">Delete Product</h2>
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
-                  This permanently removes the product from the database. This cannot be undone (aside from the
-                  temporary Undo button after confirming).
-                </p>
-                <form onSubmit={handleDeleteSubmit} className="space-y-4 w-full">
-                  <div>
-                    <label className="block mb-1 font-medium">Product</label>
-                    <input type="text" value={`${deleteForm.productId} — ${deleteForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Reason</label>
-                    <select
-                      value={deleteForm.reason}
-                      onChange={(e) => setDeleteForm({ ...deleteForm, reason: e.target.value })}
-                      className="border rounded px-3 py-2 w-full"
-                    >
-                      <option value="">Select reason</option>
-                      {REASON_OPTIONS.map((r) => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Note</label>
-                    <input
-                      type="text"
-                      value={deleteForm.note}
-                      onChange={(e) => setDeleteForm({ ...deleteForm, note: e.target.value })}
-                      placeholder="Explain why this product is being deleted"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete Permanently</button>
-                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
-                  </div>
-                </form>
-              </div>
+                <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+                  <h2 className="text-2xl flex justify-center text-red-600 font-bold mb-4">Delete Product</h2>
+                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
+                    This permanently removes the product from the database. This cannot be undone (aside from the temporary Undo button after confirming).
+                  </p>
+                  <form onSubmit={handleDeleteSubmit} className="space-y-4 w-full">
+                    <div>
+                      <label className="block mb-1 font-medium">Product</label>
+                      <input type="text" value={`${deleteForm.productId} — ${deleteForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Reason</label>
+                      <select
+                        value={deleteForm.reason}
+                        onChange={(e) => setDeleteForm({ ...deleteForm, reason: e.target.value })}
+                        className="border rounded px-3 py-2 w-full"
+                      >
+                        <option value="">Select reason</option>
+                        {REASON_OPTIONS.map((r) => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Note</label>
+                      <input
+                        type="text"
+                        value={deleteForm.note}
+                        onChange={(e) => setDeleteForm({ ...deleteForm, note: e.target.value })}
+                        placeholder="Explain why this product is being deleted"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete Permanently</button>
+                      <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+                    </div>
+                  </form>
+                </div>
               )}
             </div>
           </div>
 
           {isAdmin && (
-          <div className="flex gap-4 mt-4 py-4">
-            <button onClick={() => setMode('add')} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-              Add Product +
-            </button>
-            {showUndo && (
-              <button onClick={handleUndo} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-                Undo Deleted
+            <div className="flex gap-4 mt-4 py-4">
+              <button onClick={() => setMode('add')} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                Add Product +
               </button>
-            )}
-          </div>
+              {showUndo && (
+                <button onClick={handleUndo} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                  Undo Deleted
+                </button>
+              )}
+            </div>
           )}
         </div>
       </main>

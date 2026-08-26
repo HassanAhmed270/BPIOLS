@@ -146,14 +146,22 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
   if (!productName || !productName.trim()) {
     return res.status(400).json({ success: false, message: 'Product name is required.' });
   }
-  const resolvedSupplier = await resolveSupplierId(supplierId);
-  if (!resolvedSupplier.ok) {
-    return res.status(400).json({ success: false, message: 'Invalid supplier selected.' });
-  }
 
   const submittedPrice = roundMoney(price);
   const threshold = parseThreshold(lowStockThreshold);
   const existingProduct = productId ? await Product.findOne({ productID: productId }) : null;
+
+  // Supplier is only ever set at creation (declarative, informational) —
+  // Update Product no longer accepts or changes it; that field belongs to
+  // Add Product only. Actual restocking (real supplier or self-buy) goes
+  // through Add Stock / Suppliers > Record a Purchase, not this form.
+  let resolvedSupplier = { ok: true, value: null };
+  if (!existingProduct) {
+    resolvedSupplier = await resolveSupplierId(supplierId);
+    if (!resolvedSupplier.ok) {
+      return res.status(400).json({ success: false, message: 'Invalid supplier selected.' });
+    }
+  }
   // Stage 7 (final.md): a new product's cost is required and always
   // becomes a NoSupplier-tagged StockBatch — see the create branch below.
   // Update path is unaffected (existingProduct truthy skips this).
@@ -166,9 +174,9 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
   if (existingProduct) {
     // final.md Stage 9: Update Product no longer touches stock at all —
     // that's Add Stock/Deduct Stock's job now (see the two routes below).
+    // supplierID is intentionally left untouched here — see note above.
     existingProduct.productName = productName;
     existingProduct.category = category;
-    existingProduct.supplierID = resolvedSupplier.value;
     if (lowStockThreshold !== undefined) existingProduct.lowStockThreshold = threshold;
 
     // Only record a new price-history entry if the price actually moved —
