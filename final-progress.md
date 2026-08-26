@@ -90,127 +90,123 @@ no token), `npm test` 66/66. Known/open: no live browser — owes/credit
 sign handling code-reviewed only; recommend a manual check (balance-due
 customer, in-credit customer, walk-in shows nothing) once merged.
 
-**2026-08-26 — Stage 12 complete.** Offline: continuous draft
-persistence. `frontend/src/lib/offlineQueue.js` and
-`frontend/src/pages/Billing.jsx` only, no backend changes. New
-IndexedDB store `drafts` (`pos-offline-queue` DB, `DB_VERSION` 1→2,
-upgrade path additive, existing `sales` store untouched), single fixed
-record (`id: 'current'`, single-shop/single-cart app) —
+**Stage 12 complete (2026-08-26, condensed).** Offline: continuous draft
+persistence. `frontend/src/lib/offlineQueue.js`/`Billing.jsx` only, no
+backend changes. New IndexedDB `drafts` store (`DB_VERSION` 1→2,
+additive, `sales` store untouched), single fixed record —
 `saveLocalDraft()`/`getLocalDraft()`/`clearLocalDraft()`. `withStore()`
-generalized to take a store-name param, both stores share the same
-open/transaction plumbing. `Billing.jsx`: a new, non-debounced
-`useEffect` writes cart state to `saveLocalDraft()` on every item/qty/
-discount/customer/paid change — separate from the existing 7s-debounced
-*server*-side autosave (unchanged, still silently fails offline). On
-mount, a local draft is checked first (same resume/discard
-`useConfirm()` pattern); if none, the pre-existing server-draft flow
-runs as before. `resetBill()` now also clears the local draft after
-live checkout, offline-queued checkout, and Cancel. Per `final.md`:
-stays local until "Generate Bill" — no automatic handoff to the live
-`PendingBill` flow even if connectivity returns mid-edit. Verified:
-`npm install` + `npm run build` (root + `frontend/`) clean, `oxlint` 0
-errors, boot-tested (`GET /api/products`/`POST /billing/orderDetails`
-401 with no token), `npm test` 66/66. Known/open: no live
-browser/IndexedDB — store creation, restore-on-reload, clear-on-
-finalize are code-reviewed only; recommend a manual reload check (both
-online and devtools-Offline) once merged. DB version bump runs
-`onupgradeneeded` once automatically for returning users; no migration
-of existing `sales` entries needed.
-
-**2026-08-26 — Stage 12 follow-up: unit tests (Hassan-flagged).**
-`offlineQueue.js` had zero test coverage (true of the whole `frontend/`
-tree, no test runner before this). Added `fake-indexeddb` as a
-`frontend/` devDependency and `frontend/src/lib/offlineQueue.test.js`
-(10 cases, `node:test`, new `npm test` script in
-`frontend/package.json`) covering the pre-existing `sales`-queue
-functions plus the new draft functions, and store-isolation. Root `npm
-test` unchanged (backend-only); run frontend tests via `npm --prefix
-frontend test`. Writing these surfaced a real bug: `withStore()` opened
-a new IndexedDB connection per call and never closed it, hanging
-`indexedDB.deleteDatabase()` between test runs — fixed by closing the
-connection in `tx.oncomplete`/`tx.onerror` (same function this stage
-already touched, folded in rather than flagged separately). Verified:
-`frontend npm test` 10/10, `npm run build` clean, `oxlint` 0 errors,
-root `npm test` 66/66 unchanged. Known/open: unit tests run against
-`fake-indexeddb`, not a real browser — not a substitute for the manual
-reload/offline check already recommended above.
+generalized to take a store-name param. `Billing.jsx`: a new
+non-debounced `useEffect` writes cart state on every change, separate
+from the existing 7s-debounced *server*-side autosave (unchanged, still
+fails silently offline). Local draft checked first on mount, same
+resume/discard pattern; `resetBill()` clears both. Stays local until
+"Generate Bill" per `final.md` — no auto-handoff to `PendingBill`.
+Follow-up same day (Hassan-flagged): added `fake-indexeddb` +
+`offlineQueue.test.js` (10 cases, `frontend`'s first test coverage);
+surfaced and fixed a real bug — `withStore()` never closed its IndexedDB
+connection, hanging `deleteDatabase()` between test runs. Verified both
+passes: `npm run build` clean, `oxlint` 0 errors, boot-tested, `npm test`
+66/66 (root) + 10/10 (`frontend`). Known/open: no live browser/IndexedDB
+— store creation, restore-on-reload, clear-on-finalize code-reviewed
+only; recommend a manual reload check (online + devtools-Offline).
 
 **2026-08-26 — Stage 13 complete.** Offline: sync reliability &
-dashboard visibility. Depended on Stage 12 (same `lib/offlineSync.js`
-surface), sequenced after it as planned. Sync commit/transaction/replay
-logic itself is unchanged — additive reliability/visibility only.
+dashboard visibility (depended on Stage 12). Sync commit/transaction/
+replay logic unchanged — additive reliability/visibility only.
+`offlineSync.js`: `online` event now waits ~60s (`RECONNECT_DELAY_MS`,
+debounced) before flushing instead of firing instantly. New
+`SyncOverlay.jsx` (mounted in `App.jsx`) driven by a small pub-sub
+(`subscribeAutoSync`/`isAutoSyncing`) set only around *automatic*
+flushes — Reports.jsx's manual "Sync Now" bypasses it, unchanged.
+`flushOne()` now calls new `verifyOrderExists()` after a `synced`
+result before trusting it: `ok` → synced as before; `not-found` (genuine
+non-network error) → `conflict`; `unverified` (network/timeout, 3
+attempts w/ backoff) → left `pending`, retries next cycle (commit is
+idempotent). `models/Order.js` gains `offlineOrigin` (Boolean), set by
+`syncOfflineSale()`. Folded in per `final.md`'s allowance:
+`getDashboardSummary` gets `offlineOrders`; `Dashboard.jsx` gets one more
+`StatCard` — flagged, makes that stat row 6 cards not 5, cosmetic only.
+Incidental (Hassan-authorized): removed a leftover debug
+`console.log('OFFLINE CUSTOMER DEBUG:', …)` in `lib/offlineSync.js`,
+pre-existing, no functional effect. Verified: root `npm test` 66/66
+before/after; boot-tested (`GET /api/products`, `GET /api/orders/:id`,
+`GET /dashboard/load` 401 with no token); `frontend` `npm run build`
+clean, `npm test` 10/10 unaffected; `oxlint` 0 errors on all seven
+touched/added files. Known/open: no live browser — the 60s delay,
+overlay timing, and verify/backoff path are code-reviewed only, not
+exercised end-to-end; recommend a manual offline→online check once
+merged. `offlineOrigin`/"Offline Sales" figure are schema-checked only,
+no live Mongo. `unverified` intentionally leaves a sale `pending` rather
+than `conflict` (by design) — flagging for awareness, not a defect.
 
-- **Reconnect delay** (`frontend/src/lib/offlineSync.js`): the `online`
-  event now calls `scheduleReconnectFlush()`, which waits ~60s
-  (`RECONNECT_DELAY_MS`, debounced — repeated online/offline flapping
-  resets the timer rather than stacking flushes) before flushing,
-  instead of firing instantly.
-- **Sync UX overlay**: new `frontend/src/components/SyncOverlay.jsx`,
-  mounted in `App.jsx`. `offlineSync.js` exposes a small pub-sub
-  (`subscribeAutoSync`/`isAutoSyncing`), set only around *automatic*
-  flushes (interval tick, reconnect, initial mount via a new
-  `autoFlush()` wrapper) — Reports.jsx's manual "Sync Now" button still
-  calls `flushQueue()` directly, bypassing the flag, and keeps its
-  existing per-button "Syncing…" state untouched.
-- **Post-sync verification**: `flushOne()` now calls a new
-  `verifyOrderExists()` (uses the existing `api.getOrder()`) after a
-  `synced` result, before trusting it. Three outcomes: `ok` → mark
-  synced as before; `not-found` (a genuine non-network error — the
-  server said synced but the order isn't there) → mark `conflict` with
-  a clear message; `unverified` (network/timeout on all 3 attempts,
-  500ms/1s exponential backoff) → leave the entry `pending` so the next
-  flush retries the whole commit+verify cycle (safe, since
-  `POST /api/sync/commit` is idempotent).
-- **`offlineOrigin` marker**: `models/Order.js` gets `offlineOrigin`
-  (Boolean, default `false`); `lib/offlineSync.js`'s `syncOfflineSale()`
-  sets it `true` at order creation.
-- **Dashboard visibility**, folded in per `final.md`'s allowance since
-  it's a one-line addition: `lib/reports.js`'s `getDashboardSummary`
-  gets an `offlineOrders` facet/field; `Dashboard.jsx` gets one more
-  `StatCard` ("Offline Sales"). Flagged: this makes the second stat-card
-  row 6 cards instead of 5, wrapping slightly asymmetrically on `md`
-  screens — cosmetic only, grid columns not touched to stay minimal.
-- **Incidental (Hassan-authorized, not silently folded in)**: removed a
-  leftover multi-line debug `console.log('OFFLINE CUSTOMER DEBUG:', …)`
-  in `lib/offlineSync.js` predating this stage — logged customer names
-  server-side on every sync attempt, no functional effect, just log
-  noise. Flagged first, removed only after Hassan confirmed it was safe
-  to drop.
+**2026-08-26 — Stage 14 complete.** Exchange process improvements.
 
-**Affected files:** `frontend/src/lib/offlineSync.js`,
-`frontend/src/components/SyncOverlay.jsx` (new), `frontend/src/App.jsx`,
-`lib/offlineSync.js`, `models/Order.js`, `lib/reports.js`,
-`frontend/src/pages/Dashboard.jsx`.
+Confirmed in code before starting (`final.md`'s "Already working today"
+claims): store-credit-only on edit (`recomputeOrderTotals` in
+`routes/orders.js` unconditionally converts freed overpayment to
+`Customer.creditBalance`, no cash-back path) and the "Revised" receipt
+(`Orders.jsx`'s Print button already builds a full edit-history table)
+— both already correct, untouched.
+
+- **Add a new item during an exchange.** `models/Order.js`:
+  `editHistory.action` enum gained `'add'`. `routes/orders.js`: new
+  `applyLineAddition()` mirrors checkout's own line-creation
+  (`getLatestSellingPrice`, atomic guarded stock decrement,
+  `consumeFIFO` for cost basis, `disableIfDepleted`) instead of
+  reinventing it; rejects a `productID` the order already has a line
+  for (points to the existing reduction form instead — quantity changes
+  on an existing line stay `applyLineReduction`'s job, so the two paths
+  never fight over one line's fields). `POST /api/order/:orderID/edit`
+  now branches on `action: 'add'` vs the original reduction behavior;
+  existing calls (no `action` field) are unaffected. No discount
+  support on an added line — out of scope, not requested.
+- **Net balance** — no new logic, per `final.md`: `recomputeOrderTotals`
+  already handles both directions (credit if the swap frees money,
+  `balanceDue` increase if it doesn't).
+- **Walk-in → customer conversion.** `routes/customers.js`: new
+  `POST /customer/create`, upsert-style — creates if the name doesn't
+  exist, returns as-is if it does (never overwrites existing details).
+  `routes/orders.js`: new `POST /api/order/:orderID/convert-customer`
+  reattaches a `WALKIN_CUSTOMER`-sentinel order to a real (already-
+  created) customer — sets `order.customerName`, pushes the order's
+  summary onto `Customer.orders` (same shape checkout's own push uses),
+  400s if the order isn't actually a walk-in or the customer doesn't
+  exist yet. Two separate calls, not one combined endpoint — frontend
+  calls `createCustomer` then `convertWalkInOrder` in sequence.
+- **Frontend** (`Orders.jsx`): "Convert to customer" panel (only shown
+  for a walk-in order, same 72h edit window gate) above "Edit a line
+  item"; new "Add a new item" panel below it — product dropdown
+  excludes products already on the order, quantity, required reason.
+  `allProducts` loaded once on mount (`api.getProducts({limit: 1000})`).
+  `api.js` gained `convertWalkInOrder`/`createCustomer`.
+- **Incidental (one-line, obviously correct):** removed an unused
+  `isValidDiscount` import in `routes/orders.js`, pre-existing, not
+  introduced by this stage — flagged, not silently dropped.
+
+**Affected files:** `models/Order.js`, `routes/orders.js`,
+`routes/customers.js`, `frontend/src/pages/Orders.jsx`,
+`frontend/src/lib/api.js`.
 
 **Verified:**
-- Root: `npm install` + `npm test` — 66/66 pass, before and after the
-  debug-log removal.
-- Backend boot-tested with a real `.env` (no live Mongo in sandbox —
-  standing constraint): `GET /api/products`, `GET /api/orders/:id`,
-  `GET /dashboard/load` all correctly 401 with no token.
-- `frontend`: `npm install` + `npm run build` (Vite) clean; `npm test`
-  (Stage 12's `fake-indexeddb` suite) 10/10 pass, unaffected by this
-  stage's changes.
-- `npx oxlint` on all seven touched/added files — 0 warnings, 0 errors.
+- `npm install` + `npm test` — 66/66 pass.
+- Backend boot-tested with a real `.env`: `POST /api/order/:id/edit`
+  (both `add` and reduction bodies), `POST /api/order/:id/convert-
+  customer`, `POST /customer/create`, `GET /api/orders` all correctly
+  401 with no token.
+- `frontend`: `npm install` + `npm run build` (Vite) clean.
+- `npx oxlint` on all five touched files — 0 warnings, 0 errors.
 - Build/test artifacts (`node_modules` both places, `frontend/dist`,
   `.env`) removed after verification, before packaging.
 
 **Known/open:**
-- No live browser in this sandbox — the 60s reconnect delay, the
-  overlay's show/hide timing, and the verification retry/backoff path
-  are code-reviewed only, not exercised end-to-end. Recommend a manual
-  check once merged: go offline, queue a sale, go back online, confirm
-  the overlay appears ~60s later (not instantly) and clears when the
-  flush finishes; simulate a slow/flaky connection during that window
-  if possible.
-- The `offlineOrigin` field and the Dashboard/Reports "Offline Sales"
-  figure are code-reviewed/schema-checked only — no live Mongo to
-  generate a real synced offline order against.
-- `unverified` (network failure during verification) intentionally
-  leaves a sale `pending` rather than `conflict` — this means a sale
-  that server-side actually synced successfully but couldn't be
-  locally confirmed will silently retry via the idempotent commit path
-  next cycle; this is by design (per `final.md`) but means such a sale
-  won't show as needing attention if the device stays offline
-  indefinitely afterward. Not expected to be a real-world issue given
-  the reconnect delay and interval retry, flagging for awareness only.
+- No live Mongo replica set or browser in this sandbox — FIFO
+  consumption on an added line, the walk-in→customer credit landing,
+  and the new panels' actual rendering/spacing are code-reviewed only.
+  Recommend once merged: exchange an order to add a new item, confirm
+  stock decrements and `editHistory` shows the `add` action with
+  correct FIFO cost; convert a walk-in order to a new customer, confirm
+  `customerName` updates and a subsequent reduction's freed credit
+  lands on that customer, not lost.
+- Adding a line never applies a discount — if a promotional/matching
+  discount is expected on a swapped-in item, that's not covered here
+  and would need a follow-up decision, not assumed.

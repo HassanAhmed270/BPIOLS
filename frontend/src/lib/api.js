@@ -156,7 +156,14 @@ export const api = {
   request(`/api/order/${encodeURIComponent(orderID)}/edit`, {
     method: 'POST',
     body: JSON.stringify(payload),
-  }), refundOrder: (orderID, payload) =>
+  }),
+  convertWalkInOrder: (orderID, customerName) =>
+    request(`/api/order/${encodeURIComponent(orderID)}/convert-customer`, {
+      method: 'POST',
+      body: JSON.stringify({ customerName }),
+    }),
+  createCustomer: (payload) => request('/customer/create', { method: 'POST', body: JSON.stringify(payload) }),
+  refundOrder: (orderID, payload) =>
     request(`/api/order/${encodeURIComponent(orderID)}/refund`, {
       method: 'POST',
       body: JSON.stringify(payload),
