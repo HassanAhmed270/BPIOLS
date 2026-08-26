@@ -620,6 +620,39 @@ independent existence check (with bounded retry) before being marked
 
 ---
 
+## Stage 15 — Deduct Stock: batch selection when cost differs
+
+**Raised 2026-08-25**, after seeing Stage 9's Deduct Stock in practice:
+a deduction's `costValue` came out lower than `quantity × latest cost`
+because `consumeFIFO()` (`lib/costing.js`) silently draws from the
+*oldest* remaining `StockBatch` first, which can have a different,
+older `unitCost` than what's shown as the product's current price. Not
+a bug — real FIFO cost accounting — but invisible to the admin doing the
+deduction, who has no way to know or choose which batch's cost applies.
+
+**Scope:** when a product has more than one distinct-cost batch with
+stock remaining, Deduct Stock must show them (e.g. "12 units @ Rs 350
+(bought 12 Jun)" vs "6 units @ Rs 550 (bought 20 Aug)") and require the
+admin to pick which one to draw from, capping the deduction quantity to
+that batch's remaining. When there's only one batch (or none — legacy
+unbatched stock), skip the picker; behavior is unchanged and automatic,
+exactly as Stage 9 shipped it.
+
+**Affected areas:** `lib/costing.js` (new `consumeSpecificBatches()`,
+alongside the existing `consumeFIFO()` — not a replacement, since
+checkout/offline sale still need pure oldest-first FIFO and are out of
+scope here), `routes/products.js` (new `GET
+/api/product/:productID/batches`; `deduct-stock` accepts an optional
+`batchId`), `frontend/src/pages/Products.jsx` (Deduct Stock form fetches
+and shows the batch picker conditionally), `frontend/src/lib/api.js`.
+
+**Completion criteria:** a product with two differently-priced batches
+shows a picker on Deduct Stock and the resulting `Loss`/supplier-credit
+`costValue` matches the chosen batch's `unitCost × quantity` exactly; a
+product with one batch (or none) shows no picker and behaves exactly as
+Stage 9 already verified. `npm test` still passes; boot-tested;
+`final-progress.md` updated.
+
 ## Deferred — not yet scoped
 
 All items previously listed here (Exchange process improvements, Offline
