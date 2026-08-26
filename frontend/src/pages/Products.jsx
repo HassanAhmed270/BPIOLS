@@ -378,7 +378,7 @@ export default function Products() {
 
               {isAdmin && (mode === 'add' || mode === 'update') && (
               <div className="w-full lg:w-1/3 p-4 sm:p-8 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
-                <h2 className="text-2xl flex justify-center text-green-600 font-bold mb-4">
+                <h2 className={`text-2xl flex justify-center font-bold mb-4 ${mode === 'add' ? 'text-blue-600' : 'text-yellow-600'}`}>
                   {mode === 'add' ? 'Add New Product' : 'Update Product'}
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4 w-full">
@@ -393,45 +393,47 @@ export default function Products() {
                       />
                     </div>
                   )}
-                  <div>
-                    <label className="block mb-1 font-medium">Product Name</label>
-                    <input
-                      type="text"
-                      value={form.productName}
-                      onChange={(e) => setForm({ ...form, productName: e.target.value })}
-                      placeholder="Enter product name"
-                      className="border rounded px-3 py-2 w-full"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block mb-1 font-medium">Product Name</label>
+                      <input
+                        type="text"
+                        value={form.productName}
+                        onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                        placeholder="Enter product name"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1 font-medium">Category</label>
+                      <input
+                        type="text"
+                        value={form.category}
+                        onChange={(e) => setForm({ ...form, category: e.target.value })}
+                        placeholder="Enter category"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Category</label>
-                    <input
-                      type="text"
-                      value={form.category}
-                      onChange={(e) => setForm({ ...form, category: e.target.value })}
-                      placeholder="Enter category"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1 font-medium">Selling Price</label>
-                    {isAdmin && mode === 'update' && (
-                      <p className="text-xs text-gray-500 mb-1">
-                        Previous selling price: <span className="font-medium text-gray-700">{formatMoney(previousPrice ?? 0)}</span>
-                      </p>
-                    )}
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={form.price}
-                      onChange={(e) => setForm({ ...form, price: e.target.value })}
-                      placeholder="Enter selling price"
-                      className="border rounded px-3 py-2 w-full"
-                    />
-                  </div>
-                  {mode === 'add' && (
-                    <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block mb-1 font-medium">Selling Price</label>
+                      {isAdmin && mode === 'update' && (
+                        <p className="text-xs text-gray-500 mb-1">
+                          Previous: <span className="font-medium text-gray-700">{formatMoney(previousPrice ?? 0)}</span>
+                        </p>
+                      )}
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.price}
+                        onChange={(e) => setForm({ ...form, price: e.target.value })}
+                        placeholder="Enter selling price"
+                        className="border rounded px-3 py-2 w-full"
+                      />
+                    </div>
+                    {mode === 'add' ? (
                       <div>
                         <label className="block mb-1 font-medium">Cost</label>
                         <input
@@ -444,6 +446,24 @@ export default function Products() {
                           className="border rounded px-3 py-2 w-full"
                         />
                       </div>
+                    ) : (
+                      <div>
+                        <label className="block mb-1 font-medium">Supplier</label>
+                        <select
+                          value={form.supplierId}
+                          onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+                          className="border rounded px-3 py-2 w-full"
+                        >
+                          <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
+                          {allSuppliers.map((s) => (
+                            <option key={s._id} value={s._id}>{s.supplierName}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  {mode === 'add' && (
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block mb-1 font-medium">Stock</label>
                         <input
@@ -454,21 +474,21 @@ export default function Products() {
                           className="border rounded px-3 py-2 w-full"
                         />
                       </div>
-                    </>
+                      <div>
+                        <label className="block mb-1 font-medium">Supplier</label>
+                        <select
+                          value={form.supplierId}
+                          onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+                          className="border rounded px-3 py-2 w-full"
+                        >
+                          <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
+                          {allSuppliers.map((s) => (
+                            <option key={s._id} value={s._id}>{s.supplierName}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                   )}
-                  <div>
-                    <label className="block mb-1 font-medium">Supplier</label>
-                    <select
-                      value={form.supplierId}
-                      onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
-                      className="border rounded px-3 py-2 w-full"
-                    >
-                      <option value={NO_SUPPLIER}>🛠 NoSupplier — Buy Myself / Self Purchased</option>
-                      {allSuppliers.map((s) => (
-                        <option key={s._id} value={s._id}>{s.supplierName}</option>
-                      ))}
-                    </select>
-                  </div>
                   <div>
                     <label className="block mb-1 font-medium">Low Stock Alert Threshold</label>
                     <input
@@ -483,7 +503,7 @@ export default function Products() {
                   </div>
 
                   <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                    <button type="submit" className={`px-4 py-2 text-white rounded ${mode === 'add' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}>
                       {mode === 'add' ? 'Add Product' : 'Update Product'}
                     </button>
                     {mode === 'update' && (

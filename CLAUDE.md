@@ -144,8 +144,7 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2), `Loss` (Stage 9a/9b — write-offs, surfaced on Dashboard +
-Reports).
+(Stage 2), `Loss` (Stage 9 — write-offs, surfaced on Dashboard/Reports).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
@@ -164,19 +163,16 @@ current state of any item flagged as changing under a specific stage):
   requires a real supplier) — self-purchase now lives only on Add Stock.
 - Restocking/checkout use transactions; FIFO costing via `StockBatch`/
   `lib/costing.js`. Stage 7 made Cost required on Add Product's create
-  path. Stage 9a: Update Product has no stock field at all anymore
-  (name/price/category/supplier/threshold only); restocking goes through
-  **Add Stock** (`POST /api/product/:productID/add-stock`, admin-only,
-  cost+quantity required, always self-buying/`NoSupplier`) instead. A
-  parallel **Deduct Stock** action
-  (`POST /api/product/:productID/deduct-stock`) removes stock with a
-  required reason
+  path. Stage 9a: Update Product has no stock field (name/price/
+  category/supplier/threshold only); restocking goes through **Add
+  Stock** (`POST /api/product/:productID/add-stock`, admin-only,
+  cost+quantity, always self-buying/`NoSupplier`). **Deduct Stock**
+  (`.../deduct-stock`) removes stock with a required reason
   (`expired`/`returned_to_supplier`/`damaged_lost`/`discontinued`) +
-  note; draws down FIFO batches via `consumeFIFO()` for cost, same as a
-  sale. `returned_to_supplier` credits the chosen supplier's
-  `creditBalance` with recovered cost, no `Loss`; every other reason
-  writes one `Loss` doc. The dead `POST /billing/update` (reason-less
-  quantity setter, unreachable from any frontend call) was removed here.
+  note, drawing down FIFO batches via `consumeFIFO()`. `returned_to_
+  supplier` credits the chosen supplier's `creditBalance`, no `Loss`;
+  every other reason writes one `Loss` doc. The dead `POST
+  /billing/update` was removed here (unreachable from any frontend call).
 - **Zero-stock auto-disable** (Stage 9a): `lib/costing.js`'s
   `disableIfDepleted()` sets `Product.disabled` true the instant
   `quantity` hits 0 — called after checkout, offline sync, and Deduct
@@ -186,6 +182,10 @@ current state of any item flagged as changing under a specific stage):
   `{reason, note}` (same set as Deduct Stock), 400s if `quantity > 0`
   (deduct remaining stock first); reason/note is an audit annotation
   only — no Loss/credit side effects fire here.
+- **UI polish** (Stage 10): Add/Update Product form matches
+  Customers.jsx's color convention (blue=Add, yellow=Update), 2-column
+  grid. Billing's on-screen cart preview (not `printReceiptFor`/Special
+  Bill) is stacked receipt-lines, not a table.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
   `AuditLog.jsx`'s raw JSON dump with a flattened table

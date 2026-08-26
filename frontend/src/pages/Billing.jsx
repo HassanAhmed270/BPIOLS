@@ -874,38 +874,28 @@ export default function Billing() {
                 <div className="max-w-md mx-auto bg-white border rounded-lg p-4 font-mono shadow text-sm space-y-2">
                   <h2 className="text-center font-bold text-lg border-b pb-2">Receipt</h2>
                   <div className="font-semibold">Bill ID: {billId}</div>
-                  <table className="w-full border-collapse text-xs">
-                    <thead className="bg-gray-100 text-gray-700">
-                      <tr>
-                        <th className="p-1 text-left border">#</th>
-                        <th className="p-1 text-left border">Code</th>
-                        <th className="p-1 text-left border">Product</th>
-                        <th className="p-1 text-left border">Price</th>
-                        <th className="p-1 text-left border">Qty</th>
-                        <th className="p-1 text-left border">Total</th>
-                        <th className="p-1 text-left border">Save</th>
-                        <th className="p-1 text-left border">Net</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(billingItems).map(([key, item]) => {
-                        const subtotal = item.unitPrice * item.quantity;
-                        const net = roundMoney(subtotal - subtotal * (item.discount / 100));
-                        return (
-                          <tr key={key} className="cursor-pointer hover:bg-red-50" onClick={() => removeItem(key)} title="Click to remove">
-                            <td className="border text-center py-1">{key}</td>
-                            <td className="border py-1">{item.productCode}</td>
-                            <td className="border py-1">{item.itemName}</td>
-                            <td className="border py-1">{formatMoney(item.unitPrice)}</td>
-                            <td className="border py-1">{item.quantity}</td>
-                            <td className="border py-1">{formatMoney(subtotal)}</td>
-                            <td className="border py-1">{item.discount}%</td>
-                            <td className="border py-1">{formatMoney(net)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div className="divide-y">
+                    {Object.entries(billingItems).map(([key, item]) => {
+                      const subtotal = item.unitPrice * item.quantity;
+                      const net = roundMoney(subtotal - subtotal * (item.discount / 100));
+                      return (
+                        <div
+                          key={key}
+                          className="cursor-pointer hover:bg-red-50 py-1"
+                          onClick={() => removeItem(key)}
+                          title="Click to remove"
+                        >
+                          <div className="flex justify-between">
+                            <span>#{key} {item.productCode} {item.itemName}</span>
+                          </div>
+                          <div className="flex justify-between text-gray-600">
+                            <span>{item.quantity} × {formatMoney(item.unitPrice)} {item.discount > 0 ? `-${item.discount}%` : ''}</span>
+                            <span>= {formatMoney(net)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                   {totalDiscount > 0 && (
                     <div className="flex justify-between text-xs text-gray-600 mt-1">
                       <span>Discount</span>
