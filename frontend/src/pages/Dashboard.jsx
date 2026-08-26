@@ -124,6 +124,12 @@ export default function Dashboard() {
               accent="border-red-400"
               hint={dashboard ? `${formatMoney(dashboard.totalLossValue)} written off` : 'Expired/Damaged/Discontinued'}
             />
+            <StatCard
+              label="Offline Sales"
+              value={dashboard ? dashboard.offlineOrders : '--'}
+              accent="border-yellow-400"
+              hint="Made offline, synced since"
+            />
           </div>
 
           <div className="p-4 sm:p-6 bg-white rounded-lg shadow overflow-x-auto">

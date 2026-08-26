@@ -7,6 +7,11 @@ import { api } from './api';
 import { listQueue, updateSale, isOfflineSyncEnabled } from './offlineQueue';
 
 const FLUSH_INTERVAL_MS = 15000;
+// Stage 13 — wait this long after an 'online' event before flushing, so a
+// still-flapping connection doesn't get synced into mid-reconnect.
+const RECONNECT_DELAY_MS = 60000;
+const VERIFY_RETRIES = 3;
+const VERIFY_BACKOFF_MS = 500;
 
 // A failed fetch (offline, DNS, server down) throws a TypeError from the
 // browser's fetch implementation with no HTTP status attached — that's
@@ -18,13 +23,49 @@ function isNetworkError(err) {
 }
 export { isNetworkError };
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Stage 13 — one independent existence check before trusting a "synced"
+// result. Returns 'ok' (order confirmed), 'not-found' (server said synced
+// but the order genuinely isn't there — a real problem, flag it), or
+// 'unverified' (network/timeout on every attempt — leave the sale pending
+// so the next flush retries the whole commit+verify cycle; syncOfflineSale
+// is idempotent, so re-sending it is safe).
+async function verifyOrderExists(orderID) {
+  for (let attempt = 1; attempt <= VERIFY_RETRIES; attempt++) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await api.getOrder(orderID);
+      return 'ok';
+    } catch (err) {
+      if (!isNetworkError(err)) return 'not-found';
+      if (attempt < VERIFY_RETRIES) {
+        // eslint-disable-next-line no-await-in-loop
+        await wait(VERIFY_BACKOFF_MS * 2 ** (attempt - 1));
+      }
+    }
+  }
+  return 'unverified';
+}
+
 async function flushOne(sale) {
   try {
     const result = await api.syncOfflineSale(sale);
     // A 200 here only ever means the server actually synced it (or it
     // was already synced by an earlier attempt) — see routes/sync.js.
     if (result.status === 'synced') {
-      await updateSale(sale.idempotencyKey, { status: 'synced', resultingOrderID: result.orderID, lastError: null });
+      const verification = await verifyOrderExists(result.orderID);
+      if (verification === 'ok') {
+        await updateSale(sale.idempotencyKey, { status: 'synced', resultingOrderID: result.orderID, lastError: null });
+      } else if (verification === 'not-found') {
+        await updateSale(sale.idempotencyKey, {
+          status: 'conflict',
+          lastError: `Server reported ${result.orderID} as synced, but the order could not be found.`,
+        });
+      }
+      // 'unverified' — leave the entry pending, next flush retries.
     } else {
       await updateSale(sale.idempotencyKey, { status: 'conflict', lastError: result.message || 'Sync conflict.' });
     }
@@ -58,7 +99,47 @@ export async function flushQueue() {
   }
 }
 
+// Stage 13 — a blocking overlay (SyncOverlay.jsx) subscribes to this so it
+// only shows during an *automatic* background flush, not the manual
+// "Sync Now" button on Reports.jsx (which already has its own "Syncing…"
+// button state and calls flushQueue() directly, bypassing this flag).
+let autoSyncing = false;
+const autoSyncListeners = new Set();
+
+function setAutoSyncing(value) {
+  if (autoSyncing === value) return;
+  autoSyncing = value;
+  autoSyncListeners.forEach((fn) => fn(value));
+}
+
+export function subscribeAutoSync(fn) {
+  autoSyncListeners.add(fn);
+  return () => autoSyncListeners.delete(fn);
+}
+
+export function isAutoSyncing() {
+  return autoSyncing;
+}
+
+async function autoFlush() {
+  setAutoSyncing(true);
+  try {
+    await flushQueue();
+  } finally {
+    setAutoSyncing(false);
+  }
+}
+
 let started = false;
+let reconnectTimer = null;
+
+function scheduleReconnectFlush() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    autoFlush();
+  }, RECONNECT_DELAY_MS);
+}
 
 // Call once, near the app root. Safe to call multiple times — only the
 // first call actually starts the interval/listeners.
@@ -66,13 +147,14 @@ export function startOfflineSyncWatcher() {
   if (started || !isOfflineSyncEnabled()) return;
   started = true;
 
-  flushQueue();
-  const interval = setInterval(flushQueue, FLUSH_INTERVAL_MS);
-  window.addEventListener('online', flushQueue);
+  autoFlush();
+  const interval = setInterval(autoFlush, FLUSH_INTERVAL_MS);
+  window.addEventListener('online', scheduleReconnectFlush);
 
   return () => {
     clearInterval(interval);
-    window.removeEventListener('online', flushQueue);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    window.removeEventListener('online', scheduleReconnectFlush);
     started = false;
   };
 }

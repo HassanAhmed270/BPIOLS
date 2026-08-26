@@ -65,6 +65,10 @@ const orderSchema = new Schema({
     }
   ],
   orderDate: { type: Date, default: Date.now },
+  // Stage 13 (final.md): set true only by lib/offlineSync.js's
+  // syncOfflineSale — marks an order that was actually made offline and
+  // committed at reconnect, for dashboard/reports visibility.
+  offlineOrigin: { type: Boolean, default: false },
   // Stage 7: admin bill editing & refunds.
   status: { type: String, enum: ['active', 'refunded'], default: 'active', required: true },
   // Every reduce/remove edit appends one entry here — the order is never
