@@ -40,55 +40,29 @@ was missing its `mongoose` import (pre-existing bug). Verified as above.
 backend changes. Selected product's cost renders next to selling price
 in the item-entry form, gated `isAdmin`. Verified as above.
 
-**Stage 9 complete (2026-08-25, split 9a/9b/9c per `final.md`'s own
-suggestion).** 9a: Add Stock + Deduct Stock actions
-(`POST /api/product/:productID/add-stock`/`.../deduct-stock`,
-reason-coded), zero-stock auto-disable (`Product.disabled`,
-`lib/costing.js`'s `disableIfDepleted()`, wired into checkout and
-offline sync — flagged, necessary), `returned_to_supplier` credits a
-supplier via FIFO-recovered cost instead of writing a `Loss`, every
-other reason writes one `Loss`; `/supplier/purchase` now requires a
-real supplier; removed the dead `POST /billing/update`. 9b: Loss
-surfaced on Dashboard + 6th Reports export (`/api/export/losses`). 9c:
-hard-delete now requires `{reason, note}`, 400s if `quantity > 0`.
-Verified (9a–9c) as above each sub-stage. Known/open: FIFO math, credit
-increments, Loss writes, auto-disable/re-enable, and the new UI are
-code-reviewed only, no live Mongo/browser in sandbox.
+**Stage 9 complete (2026-08-25, split 9a/9b/9c).** 9a: Add/Deduct Stock
+actions, zero-stock auto-disable, `returned_to_supplier` credits
+supplier instead of `Loss`, every other reason writes one `Loss`;
+`/supplier/purchase` now requires a real supplier; removed dead `POST
+/billing/update`. 9b: Loss on Dashboard + 6th Reports export. 9c:
+hard-delete requires `{reason, note}`, 400s if `quantity > 0`. Verified
+each sub-stage. Known/open: code-reviewed only, no live Mongo/browser.
 
-**Stage 10 complete (2026-08-26, condensed; see correction below).**
-UI polish, frontend-only. `Products.jsx`: Add/Update form colors match
-Customers.jsx (blue=Add, yellow=Update, was green); restructured into a
-2-column grid. `Billing.jsx`: on-screen cart preview replaced with
-stacked receipt-lines; `printReceiptFor`/Special Bill untouched.
-Verified: `npm run build` clean, `oxlint` 0 errors, boot-tested (`GET
-/api/products`/`POST /billing/reserve` 401 with no token), `npm test`
-66/66. Known/open: no live browser — layout code-reviewed only.
-Customers/Suppliers needed no change (confirmed good earlier).
-
-**2026-08-26 — Stage 10 correction (flagged by Hassan, confirmed).**
-Stage 10's 2-column grid paired the Supplier dropdown with Selling
-Price in **Update** mode — meaning Update Product could silently
-change a product's `supplierID`. Fixed both sides: `Products.jsx`'s
-Supplier dropdown removed from Update mode entirely (Add mode only,
-paired with Stock); `routes/products.js`'s `POST /api/product` update
-branch no longer touches `existingProduct.supplierID` at all.
-`/product/undo`'s restore-from-snapshot path is unrelated, not touched.
-Verified: `npm run build` clean, `oxlint` 0 errors, `node --check
-routes/products.js` clean, `npm test` 66/66, boot-tested. Known/open:
-code-reviewed only — recommend confirming a supplier value survives an
-Update Product save unchanged, once merged.
+**Stage 10 complete (2026-08-26, condensed).** UI polish,
+frontend-only. `Products.jsx` Add/Update colors + 2-column grid;
+`Billing.jsx` cart preview → stacked receipt-lines. Verified: build/
+lint/boot-test/`npm test` all clean. **Same-day correction
+(Hassan-flagged):** the grid had briefly let Update Product's Supplier
+dropdown change `supplierID` — fixed on both sides (dropdown Add-mode
+only; `routes/products.js` update branch never touches `supplierID`).
+Re-verified clean.
 
 **2026-08-26 — Stage 11 complete.** Bill preview: customer balance.
-`Billing.jsx` only, no backend changes — `GET /api/customers` already
-returns `totalBalanceDue`. A "Customer Balance" line renders at the
-bottom of the on-screen bill preview (after Grand Total/Paid/Change)
-whenever a real customer is selected, computed as `totalBalanceDue -
-creditBalance` (positive = owes, negative = in credit), reflecting
-pre-sale state. Verified: `npm run build` clean, `oxlint` 0 errors,
-boot-tested (`GET /api/customers`/`POST /billing/orderDetails` 401 with
-no token), `npm test` 66/66. Known/open: no live browser — owes/credit
-sign handling code-reviewed only; recommend a manual check (balance-due
-customer, in-credit customer, walk-in shows nothing) once merged.
+`Billing.jsx` only. "Customer Balance" line at the bottom of the
+on-screen preview (`totalBalanceDue - creditBalance`, pre-sale) when a
+real customer is selected. Verified clean throughout. Known/open:
+code-reviewed only, recommend a manual check (balance-due/in-credit/
+walk-in) once merged.
 
 **Stage 12 complete (2026-08-26, condensed).** Offline: continuous draft
 persistence. `frontend/src/lib/offlineQueue.js`/`Billing.jsx` only, no
@@ -210,3 +184,56 @@ claims): store-credit-only on edit (`recomputeOrderTotals` in
 - Adding a line never applies a discount — if a promotional/matching
   discount is expected on a swapped-in item, that's not covered here
   and would need a follow-up decision, not assumed.
+
+**2026-08-26 — Stage 15 complete.**
+
+**Stage 15 — Deduct Stock: batch selection when cost differs.**
+`lib/costing.js`: new `consumeSpecificBatch(productID, batchId, quantity,
+session)` — draws only from one named batch (guarded atomic decrement,
+same pattern as `consumeFIFO`), capped to that batch's own
+`quantityRemaining`; throws `AppError` if the batch doesn't belong to
+the product or doesn't have enough left. Deliberately separate from
+`consumeFIFO`, not a mode flag on it — checkout and offline sync keep
+calling `consumeFIFO` unconditionally, untouched. New
+`listRemainingBatches(productID)` — oldest-first, same ordering
+`consumeFIFO` itself draws in.
+
+`routes/products.js`: new `GET /api/product/:productID/batches`
+(admin-only) returns the raw batch list; `POST .../deduct-stock` now
+accepts an optional `batchId` and branches to `consumeSpecificBatch`
+when present, `consumeFIFO` otherwise (unchanged default) — so any
+existing caller that never sends `batchId` behaves exactly as before.
+
+`frontend/src/pages/Products.jsx`: Deduct Stock fetches a product's
+batches on selection; the picker only renders when 2+ *distinct*
+`unitCost` values remain (a single cost, even split across several
+batches, stays fully automatic — no picker, matches Stage 9's original
+behavior exactly). Picker shows `{qty} unit(s) @ {cost} (bought {date})`
+per batch; selecting one caps the Quantity input's `max` to that
+batch's own remaining and clears the confirm-blocking check requiring a
+choice when more than one cost exists. `api.js` gained
+`getProductBatches`.
+
+**Affected files:** `lib/costing.js`, `routes/products.js`,
+`frontend/src/pages/Products.jsx`, `frontend/src/lib/api.js`.
+
+**Verified:**
+- `npm test` — 66/66 pass.
+- Backend boot-tested with a real `.env`: `GET
+  /api/product/:id/batches` and `POST /api/product/:id/deduct-stock`
+  both correctly 401 with no token.
+- `frontend`: `npm run build` (Vite) clean.
+- `npx oxlint` on all four touched files — 0 warnings, 0 errors.
+- Build/test artifacts (`node_modules`, `frontend/dist`, `.env`)
+  removed after verification, before packaging.
+
+**Known/open:**
+- No live Mongo replica set or browser in this sandbox — the picker's
+  actual appearance/disappearance based on real batch data, and the
+  resulting `Loss`/supplier-credit `costValue` matching the chosen
+  batch's `unitCost × quantity` exactly, are code-reviewed only.
+  Recommend once merged: create a product, restock it twice at two
+  different costs (two `StockBatch`es), confirm Deduct Stock shows the
+  picker and the quantity cap works; restock a *different* product
+  twice at the *same* cost, confirm no picker appears and behavior is
+  unchanged from Stage 9.

@@ -53,11 +53,13 @@ Check for an existing helper before creating new logic.
 - Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
 - Audit logging: `lib/auditLog.js` → `logAudit()`.
 - FIFO costing: `lib/costing.js` (`createBatch`, `consumeFIFO`,
-  `restoreConsumption`, `generateUniquePurchaseId`), `models/StockBatch.js`.
+  `consumeSpecificBatch`, `listRemainingBatches`, `restoreConsumption`,
+  `generateUniquePurchaseId`), `models/StockBatch.js`. Deduct Stock uses
+  `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
+  checkout/offline sync always use plain `consumeFIFO`.
 - Sequential ID generation: `models/Counter.js` — a generic
-  `{ _id, seq }` doc per counter key, incremented atomically via
-  `findOneAndUpdate($inc)`. `routes/products.js`'s `nextProductId()` is
-  the first consumer; reuse this rather than adding an ad-hoc counter.
+  `{ _id, seq }` doc, incremented atomically (`findOneAndUpdate($inc)`).
+  `routes/products.js`'s `nextProductId()` is the first consumer.
 - Frontend API calls: `frontend/src/lib/api.js`.
 - Toasts/confirms (Stage 5, migrated Stage 6): `sonner`'s `<Toaster>`
   mounted in `App.jsx`, use `toast()`/`.success()`/`.error()`;
@@ -189,20 +191,18 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   Stock `returned_to_supplier` reason adjusts *supplier* credit
   instead — keep the two paths separate.
 - **Order edits — add vs. reduce** (Stage 14): `POST
-  /api/order/:orderID/edit` branches on `action`. No `action`/anything
-  but `'add'` is the original reduction path (`applyLineReduction`,
-  `newQty ≤` existing quantity). `action: 'add'` is `applyLineAddition`
-  — a *new* `productID` not already on the order, added at current
-  selling price via the same `consumeFIFO`/`disableIfDepleted` checkout
-  uses; rejects a `productID` already present (use reduction instead).
-  No discount on an added line. `editHistory.action`: `'edit'|'refund'|
-  'add'`.
+  /api/order/:orderID/edit` branches on `action`. No `action` is the
+  original reduction path (`applyLineReduction`). `action: 'add'` is
+  `applyLineAddition` — a new `productID` not already on the order,
+  added at current selling price via the same `consumeFIFO`/
+  `disableIfDepleted` checkout uses; rejects a `productID` already
+  present. No discount on an added line. `editHistory.action`:
+  `'edit'|'refund'|'add'`.
 - **Walk-in → customer conversion** (Stage 14): `POST /customer/create`
-  is upsert-style (distinct from `updateCustomer`, which 404s on
-  missing). `POST /api/order/:orderID/convert-customer` reattaches a
-  `WALKIN_CUSTOMER`-sentinel order to an already-created customer,
-  pushing the order onto `Customer.orders`. Frontend calls both in
-  sequence, not combined.
+  is upsert-style (unlike `updateCustomer`, which 404s on missing).
+  `POST /api/order/:orderID/convert-customer` reattaches a
+  `WALKIN_CUSTOMER`-sentinel order to an already-created customer.
+  Frontend calls both in sequence, not combined.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) and self-service password change
   (`/api/users/me/password`); every password write refreshes

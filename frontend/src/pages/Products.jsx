@@ -19,7 +19,7 @@ const REASON_OPTIONS = [
   { value: 'damaged_lost', label: 'Damaged / Lost' },
   { value: 'discontinued', label: 'Discontinued' },
 ];
-const emptyDeductForm = { productId: '', productName: '', available: 0, quantity: '', reason: '', supplierId: '', note: '' };
+const emptyDeductForm = { productId: '', productName: '', available: 0, quantity: '', reason: '', supplierId: '', note: '', batchId: '' };
 const emptyDeleteForm = { productId: '', productName: '', category: '', price: 0, supplierId: NO_SUPPLIER, lowStockThreshold: 10, reason: '', note: '' };
 const PAGE_SIZE = 10;
 
@@ -41,6 +41,7 @@ export default function Products() {
   const [form, setForm] = useState(emptyForm);
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [deductForm, setDeductForm] = useState(emptyDeductForm);
+  const [deductBatches, setDeductBatches] = useState([]);
   const [deleteForm, setDeleteForm] = useState(emptyDeleteForm);
   const [previousPrice, setPreviousPrice] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
@@ -96,6 +97,7 @@ export default function Products() {
     setForm(emptyForm);
     setStockForm(emptyStockForm);
     setDeductForm(emptyDeductForm);
+    setDeductBatches([]);
     setDeleteForm(emptyDeleteForm);
     setPreviousPrice(null);
     setMode('add');
@@ -128,7 +130,11 @@ export default function Products() {
     setSelectedId(p.productID);
     setMode('deductstock');
     const available = p.available ?? p.quantity - (p.reserved || 0);
-    setDeductForm({ productId: p.productID, productName: p.productName, available, quantity: '', reason: '', supplierId: '', note: '' });
+    setDeductForm({ productId: p.productID, productName: p.productName, available, quantity: '', reason: '', supplierId: '', note: '', batchId: '' });
+    setDeductBatches([]);
+    api.getProductBatches(p.productID)
+      .then((data) => setDeductBatches(data.batches || []))
+      .catch((err) => toast.error('Failed to load stock batches: ' + err.message));
   };
 
   const handleSubmit = async (e) => {
@@ -193,6 +199,11 @@ export default function Products() {
       toast.error('A note is required.');
       return;
     }
+    const distinctCosts = new Set(deductBatches.map((b) => b.unitCost));
+    if (distinctCosts.size > 1 && !deductForm.batchId) {
+      toast.error('Select which batch to deduct from — this product has stock at more than one cost.');
+      return;
+    }
     if (!(await confirm(`Deduct ${qty} unit(s) of ${deductForm.productName}?`))) return;
     try {
       const data = await api.deductStock(deductForm.productId, {
@@ -200,6 +211,7 @@ export default function Products() {
         reason: deductForm.reason,
         note: deductForm.note.trim(),
         ...(deductForm.reason === 'returned_to_supplier' ? { supplierId: deductForm.supplierId } : {}),
+        ...(deductForm.batchId ? { batchId: deductForm.batchId } : {}),
       });
       toast.success(data.disabled ? 'Stock deducted. Product is now disabled (zero stock).' : 'Stock deducted.');
       await loadProducts();
@@ -556,12 +568,30 @@ export default function Products() {
                       <input type="text" value={`${deductForm.productId} — ${deductForm.productName}`} disabled className="border rounded px-3 py-2 bg-gray-100 w-full disabled:opacity-70" />
                       <p className="text-xs text-gray-500 mt-1">Available: {deductForm.available}</p>
                     </div>
+                    {new Set(deductBatches.map((b) => b.unitCost)).size > 1 && (
+                      <div>
+                        <label className="block mb-1 font-medium">Batch (cost differs)</label>
+                        <select
+                          value={deductForm.batchId}
+                          onChange={(e) => setDeductForm({ ...deductForm, batchId: e.target.value, quantity: '' })}
+                          className="border rounded px-3 py-2 w-full"
+                        >
+                          <option value="">Select which batch to deduct from</option>
+                          {deductBatches.map((b) => (
+                            <option key={b._id} value={b._id}>
+                              {b.quantityRemaining} unit(s) @ {formatMoney(b.unitCost)} (bought {new Date(b.purchaseDate).toLocaleDateString()})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">This product has stock bought at different costs — pick which one this deduction comes from.</p>
+                      </div>
+                    )}
                     <div>
                       <label className="block mb-1 font-medium">Quantity</label>
                       <input
                         type="number"
                         min="1"
-                        max={deductForm.available}
+                        max={deductForm.batchId ? deductBatches.find((b) => b._id === deductForm.batchId)?.quantityRemaining : deductForm.available}
                         value={deductForm.quantity}
                         onChange={(e) => setDeductForm({ ...deductForm, quantity: e.target.value })}
                         placeholder="Enter quantity"

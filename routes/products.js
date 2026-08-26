@@ -10,7 +10,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { AppError } = require('../lib/errors');
 const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice, getLatestBuyingPrice } = require('../lib/pricing');
-const { createBatch, generateUniquePurchaseId, consumeFIFO, disableIfDepleted } = require('../lib/costing');
+const { createBatch, generateUniquePurchaseId, consumeFIFO, consumeSpecificBatch, listRemainingBatches, disableIfDepleted } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { logAudit } = require('../lib/auditLog');
 const { isValidProductId } = require('../lib/validators');
@@ -328,10 +328,23 @@ router.post('/api/product/:productID/add-stock', requireAuth, requireAdmin, asyn
 // Reports as of Stage 9b. Draws down FIFO cost batches the same way a
 // sale does (lib/costing.js) so the recorded cost/credit is never
 // invented for stock that has no batch behind it.
+// final.md Stage 15 — lets Deduct Stock's picker show remaining batches
+// only when there's a real cost choice to make (2+ distinct unitCost
+// values with stock left); the frontend decides whether to render the
+// picker, this route just returns the raw list either way.
+router.get('/api/product/:productID/batches', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const { productID } = req.params;
+  if (!isValidProductId(productID)) {
+    return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
+  }
+  const batches = await listRemainingBatches(productID);
+  res.status(200).json({ success: true, batches });
+}));
+
 const DEDUCT_REASONS = [...Loss.REASONS, 'returned_to_supplier'];
 router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { productID } = req.params;
-  const { quantity, reason, note, supplierId } = req.body;
+  const { quantity, reason, note, supplierId, batchId } = req.body;
 
   if (!isValidProductId(productID)) {
     return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
@@ -345,6 +358,9 @@ router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, a
   const qty = parseInt(quantity);
   if (!Number.isInteger(qty) || qty < 1) {
     return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number.' });
+  }
+  if (batchId && !mongoose.Types.ObjectId.isValid(batchId)) {
+    return res.status(400).json({ success: false, message: 'Invalid batch selected.' });
   }
 
   let resolvedSupplierId = null;
@@ -373,7 +389,9 @@ router.post('/api/product/:productID/deduct-stock', requireAuth, requireAdmin, a
       }
       const before = product.toObject();
 
-      const fifo = await consumeFIFO(productID, qty, session);
+      const fifo = batchId
+        ? await consumeSpecificBatch(productID, batchId, qty, session)
+        : await consumeFIFO(productID, qty, session);
 
       const updated = await Product.findOneAndUpdate(
         { _id: product._id, quantity: { $gte: qty } },
