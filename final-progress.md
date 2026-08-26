@@ -198,34 +198,40 @@ confirmed before starting; final.md itself suggested this split).**
   dead `NO_SUPPLIER` const/self-purchase toast branch. `api.js` —
   `addStock()`/`deductStock()`.
 
-**Verified:**
-- `node -c` on every touched backend file — all pass.
-- `npm test` — all 66 existing tests pass unchanged (before and after the
-  post-lint `requireAdmin` cleanup in `routes/billing.js`).
-- `npx oxlint` on all touched files — 0 errors; 2 pre-existing unrelated
-  warnings left alone (`StockBatch` unused in `suppliers.js`,
-  `isValidDiscount` unused in `orders.js` — both predate this stage, out
-  of scope).
-- Backend boot-tested twice with a real `.env`: server starts cleanly;
-  `GET /api/products`, both new product routes, `POST /supplier/purchase`,
-  and `POST /billing/reserve` all correctly 401 with no token (confirms
-  mounting/auth-gating); `POST /billing/update` now correctly 404s
-  (route removed).
-- `npm run build` (Vite) — clean, no errors.
-- Artifacts (`node_modules` both locations, `frontend/dist`, `.env`)
-  removed after verification.
+**Verified:** `node -c` all touched files; `npm test` 66/66 unchanged
+(before/after the post-lint `requireAdmin` cleanup); `oxlint` 0 errors (2
+pre-existing unrelated warnings untouched); backend boot-tested twice
+(`GET /api/products`, both new product routes, `POST /supplier/purchase`,
+`POST /billing/reserve` all correctly 401; `POST /billing/update` now
+404s); `npm run build` clean. Artifacts removed after verification.
 
-**Known/open:**
-- No live MongoDB replica set in this sandbox — boot tests confirm
-  routing/auth/validation, not full transactional behavior against real
-  data (FIFO consumption math, supplier credit increments, Loss writes,
-  auto-disable/re-enable end-to-end). Recommend running through Add
-  Stock → Deduct Stock (each reason) → re-Add Stock on a real product
-  once merged, watching `Product.disabled`, `StockBatch`, `Loss`, and
-  `Supplier.creditBalance`.
-- No live browser — new Products.jsx forms/row actions and the disabled-
-  row styling are code-reviewed only, not visually confirmed.
-- Stage 9b (Loss surfaced on Dashboard + a Reports export) and Stage 9c
-  (hard-delete rework: only reachable at zero stock, routed through a
-  reason form) are still open — do not start either until explicitly
-  requested; this entry covers 9a only.
+**Known/open:** no live MongoDB replica set/browser — boot tests confirm
+routing/auth/validation only, not full transactional behavior (FIFO
+math, credit increments, Loss writes, auto-disable/re-enable
+end-to-end) or the new UI. Recommend running Add Stock → Deduct Stock
+(each reason) → re-Add Stock on a real product once merged. Stage 9b/9c
+were still open as of this entry (9b now done below; 9c still open).
+
+**Stage 9b complete — Loss surfaced on Dashboard + a new 6th Reports
+export.** `lib/reports.js`: `getDashboardSummary` gained a `lossAgg`
+(scoped by the same range/`Loss.date`) → `totalLosses`
+(count)/`totalLossValue` (sum of `costValue`); new `getLossRows(range)`
+for row-level detail. `routes/export.js`: new `GET /api/export/losses`
+(6th export type, per `final.md`'s own "flag if this needs a 6th"
+note — going with a new type rather than folding into an existing one,
+since Losses has its own row shape); `summary` export gained
+`totalLosses`/`totalLossValue` columns. Frontend: `Dashboard.jsx` gained
+a "Losses" StatCard (count + cost written off) — bumped that row's grid
+to `md:grid-cols-5` to fit; `Reports.jsx`'s `EXPORTS` array gained a
+`losses` entry (fully data-driven, no other change needed there).
+
+**Verified:** `node -c` both backend files; `npm test` 66/66 unchanged;
+backend boot-tested (`/api/export/losses`, `/api/export/summary`,
+`/dashboard/load` all correctly 401 with no token); `npm run build`
+clean; `oxlint` on all 4 touched files — 0 errors, 2 pre-existing
+warnings in `Reports.jsx` untouched code (confirmed via diff, not
+regressions). Artifacts removed after verification.
+
+**Known/open:** no live DB/browser — the aggregation math and new
+StatCard/export-card rendering are code-reviewed only. Stage 9c
+(hard-delete rework) is still open.

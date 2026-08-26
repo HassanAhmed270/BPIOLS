@@ -15,6 +15,7 @@ const EXPORTS = [
   { type: 'summary', label: 'Summary', description: 'One-row snapshot of the headline dashboard numbers.', ranged: true },
   { type: 'sales', label: 'Sales', description: 'Every order placed in the selected range.', ranged: true },
   { type: 'refunds', label: 'Refunds', description: 'Every refund processed in the selected range.', ranged: true },
+  { type: 'losses', label: 'Losses', description: 'Every stock write-off (expired/damaged/discontinued) in the selected range.', ranged: true },
   { type: 'credit', label: 'Customer Credit', description: 'Every order with an outstanding balance, as of now.', ranged: false },
   { type: 'payables', label: 'Supplier Payables', description: 'Every purchase with an outstanding balance, as of now.', ranged: false },
 ];
@@ -47,7 +48,7 @@ export default function Reports() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-2xl sm:text-3xl font-semibold text-brand">Export data</h2>
-              <p className="text-gray-600">Download CSV or PDF reports for sales, refunds, credit, and payables.</p>
+              <p className="text-gray-600">Download CSV or PDF reports for sales, refunds, losses, credit, and payables.</p>
             </div>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
               {['week', 'month', 'year'].map((r) => (

@@ -42,8 +42,8 @@ independent stage-numbering sequences exist in this repo: this phase,
 - If a stage becomes too large, flag it and split rather than push
   through oversized. Stage 9 did this: **9a** (Add/Deduct Stock,
   zero-stock auto-disable — done), **9b** (Loss on Dashboard/Reports —
-  pending), **9c** (hard-delete rework — pending). Treat 9b/9c as the
-  next `final.md` work, not a new stage number.
+  done), **9c** (hard-delete rework — pending). Treat 9c as the next
+  `final.md` work, not a new stage number.
 - `final.md`'s "Deferred" section is currently empty — all originally-
   deferred items are now scoped as Stages 12–14. Newly raised items go
   there first, then get promoted to a numbered stage.
@@ -84,8 +84,7 @@ that support sessions.
 
 No comments, no extra blank-line padding, in new code and in any existing
 function/file directly touched for a fix (strip comments there too). Do
-not do a separate dedicated pass to strip comments from files a stage
-doesn't otherwise need to touch.
+not separately strip comments from files a stage doesn't otherwise touch.
 
 ## Verification
 
@@ -146,8 +145,8 @@ BPIOLS is a single-shop MERN POS/billing system intended for one desktop.
 
 Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`, `Counter`
-(Stage 2), `Loss` (Stage 9a — one entry per Deduct Stock write-off; see
-below).
+(Stage 2), `Loss` (Stage 9a — one entry per Deduct Stock write-off;
+surfaced on Dashboard + a 6th Reports export as of Stage 9b).
 
 Important invariants (check `final.md`/`final-progress.md` for the
 current state of any item flagged as changing under a specific stage):
@@ -184,17 +183,18 @@ current state of any item flagged as changing under a specific stage):
   `disableIfDepleted()` sets `Product.disabled` true the instant
   `quantity` hits 0 — called after checkout, offline sync, and Deduct
   Stock decrements. Only Add Stock clears it. Disabled products stay
-  fully visible (greyed out) but `POST /billing/reserve` won't reserve
-  one. Hard-delete rework (only reachable at zero stock) is Stage 9c,
-  not yet done.
+  visible (greyed out) but `POST /billing/reserve` won't reserve one.
+  Hard-delete rework (only reachable at zero stock) is Stage 9c, not yet
+  done.
 - Audit records are written through `logAudit()`. CSV export and offline
   sync are optional feature-flagged modules. Stage 3 replaced
-  `AuditLog.jsx`'s raw JSON dump with a flattened table via
-  `lib/flattenObject.js`. Stage 4 added `?format=pdf` to all 5
-  `routes/export.js` routes (default CSV) via a shared `sendReport()`
-  helper → `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`), reusing each
-  route's `{ key, label }` columns. `Reports.jsx` has a CSV + PDF button
-  per card; `api.js`'s `downloadExport()` gained a `format` arg.
+  `AuditLog.jsx`'s raw JSON dump with a flattened table
+  (`lib/flattenObject.js`). Stage 4 added `?format=pdf` to every
+  `routes/export.js` route (default CSV) via a shared `sendReport()` →
+  `lib/pdf.js`'s `sendTablePDF()` (`pdfkit`), reusing each route's
+  `{ key, label }` columns. Stage 9b added a 6th route,
+  `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the cards
+  generically; `api.js`'s `downloadExport()` takes a `format` arg.
 - Indexed fields: `Order.orderDate`, `Order.customerName`,
   `Product.category`. `Supplier.supplierName` relies on `unique: true`.
 - Customer store credit: `Customer.creditBalance` mirrors

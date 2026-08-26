@@ -93,7 +93,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
             <StatCard
               label="Refunded Orders"
               value={dashboard ? dashboard.refundedOrders : '--'}
@@ -117,6 +117,12 @@ export default function Dashboard() {
               value={dashboard ? formatMoney(dashboard.totalSupplierPayable) : '--'}
               accent="border-purple-400"
               hint="As of now, all suppliers"
+            />
+            <StatCard
+              label="Losses"
+              value={dashboard ? dashboard.totalLosses : '--'}
+              accent="border-red-400"
+              hint={dashboard ? `${formatMoney(dashboard.totalLossValue)} written off` : 'Expired/Damaged/Discontinued'}
             />
           </div>
 

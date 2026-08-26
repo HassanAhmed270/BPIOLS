@@ -18,6 +18,7 @@ const {
   getDashboardSummary,
   getSalesRows,
   getRefundRows,
+  getLossRows,
   getCustomerCreditRows,
   getSupplierPayableRows,
 } = require('../lib/reports');
@@ -96,6 +97,28 @@ router.get(
   })
 );
 
+// GET /api/export/losses?range=week|month|year — one row per Deduct
+// Stock write-off (Stage 9b). "Returned to Supplier" deductions never
+// appear here — see models/Loss.js.
+router.get(
+  '/losses',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const range = parseRange(req.query);
+    const rows = await getLossRows(range);
+    sendReport(req, res, `losses-${range}`, rows, [
+      { key: 'productID', label: 'Product ID' },
+      { key: 'productName', label: 'Product' },
+      { key: 'quantity', label: 'Quantity' },
+      { key: 'costValue', label: 'Cost Value' },
+      { key: 'reason', label: 'Reason' },
+      { key: 'note', label: 'Note' },
+      { key: 'actor', label: 'Recorded By' },
+      { key: 'date', label: 'Date' },
+    ], 'Losses Report', `Range: ${range}`);
+  })
+);
+
 // GET /api/export/credit — snapshot, not date-scoped (matches the
 // dashboard's "as of now" convention for outstanding balances).
 router.get(
@@ -154,6 +177,8 @@ router.get(
       { key: 'exchangedOrders', label: 'Exchanged Orders' },
       { key: 'totalCustomerCreditOutstanding', label: 'Customer Credit Outstanding' },
       { key: 'totalSupplierPayable', label: 'Supplier Payable' },
+      { key: 'totalLosses', label: 'Loss Entries' },
+      { key: 'totalLossValue', label: 'Loss Value' },
     ], 'Summary Report', `Range: ${range}`);
   })
 );
