@@ -228,3 +228,48 @@ servers, log in, stop the backend process, confirm the banner appears
 and a Products/Customers/etc. load shows the new friendly message
 instead of "Failed to fetch," confirm the session stays logged in,
 restart the backend and confirm the banner clears on the next request.
+**2026-08-29 — Stage 18 complete.** Thermal receipt printing (ESC/POS
+over Web USB) with manual-print fallback. Raised directly by Hassan:
+bills should print on a thermal till printer automatically, falling
+back to today's manual popup print only when no thermal printer is
+available/connected. Confirmed via chat before starting: printer
+connects over USB (not Serial), and it only needs to work in a plain
+Chrome/Edge browser tab right now, not inside Electron (not built yet).
+New `frontend/src/lib/thermalPrint.js`: `isWebUSBSupported()`;
+`pairThermalPrinter()` (calls `navigator.usb.requestDevice` — must run
+from a real click, one-time browser permission grant, never called
+automatically); `getPairedPrinter()`/`tryThermalPrint(data)` (silent
+`navigator.usb.getDevices()`, never prompts) — builds raw ESC/POS bytes
+(init, bill ID, item lines padded to a 32-char thermal width, discount/
+total/paid/change-or-balance-due, customer, partial cut) and writes them
+via `transferOut` to the printer's bulk OUT endpoint; resolves `false`
+(never throws) on any failure — no printer paired, open/claim/write
+error, endpoint not found — so the caller always has a clean fallback
+signal. `Billing.jsx`: new "🖨️ Connect Thermal Printer" button in the
+page header (only rendered `if (webUSBSupported)`) calling
+`pairThermalPrinter()` directly from its `onClick`, with a
+paired/not-paired indicator driven by `getPairedPrinter()` on mount plus
+`navigator.usb`'s `connect`/`disconnect` events. `printReceiptFor()` is
+now `async`: tries `tryThermalPrint()` first when Web USB is supported,
+toasts "Printed to thermal printer." on success, otherwise falls through
+to the exact same `printReceipt()` HTML-popup flow as before this stage
+— no change to that path's markup or the data it's given. Both call
+sites (`handleGenerateBill`'s online success path and its offline-queue
+fallback branch) now `await` it. `Orders.jsx`'s separate revised-receipt
+print (Stage 7) is untouched, out of this stage's scope. **Affected
+files:** new `frontend/src/lib/thermalPrint.js`, `frontend/src/pages/
+Billing.jsx`. Verified: `frontend` build clean, `oxlint` 0 errors on
+both touched/added files, `frontend npm test` 10/10 (offline-queue tests
+unaffected, no offline files touched), root `npm test` 66/66 (unaffected
+— no backend files touched, this stage is frontend-only). Known/open: no
+live browser with real USB hardware in this sandbox — Web USB itself
+(`navigator.usb`) cannot be exercised here at all, so the pairing flow,
+ESC/POS byte output against a real printer, and the fallback trigger are
+code-reviewed only; recommend once merged: pair a real USB thermal
+printer via the new button, generate a bill and confirm it prints
+directly with a "Printed to thermal printer" toast and no popup; then
+unplug/skip pairing and confirm a bill falls back to exactly today's
+print-dialog popup. Also unverified: exact ESC/POS command compatibility
+varies by printer model — the command set used (`ESC @`, `ESC a`,
+`ESC !`, `GS V`) is the common baseline most ESC/POS printers support,
+but a specific model may need tuning once tested against real hardware.

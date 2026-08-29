@@ -4,7 +4,8 @@ The `production.md` phase (Stage 1–8) is complete and merged. This repo
 is now in a separate **final-fixes phase**, defined by `final.md`. The
 app remains feature-complete; current work is further correctness/UX/
 workflow fixes identified after production-hardening closed. Stages
-1–17 of `final.md` are complete as of this update.
+1–18 of `final.md` are complete as of this update. Stage 19 is scoped,
+not started.
 
 ## Document authority
 
@@ -41,9 +42,8 @@ workflow fixes identified after production-hardening closed. Stages
 
 Check for an existing helper before creating new logic.
 - Money: `lib/money.js` → `roundMoney()`; frontend mirror at
-  `frontend/src/lib/money.js` → `roundMoney()` / `formatMoney()`.
-  `formatMoney()` outputs PKR (`Rs 1,234.50`, comma thousands-grouping,
-  `-Rs X.XX` for negatives) — see `final-progress.md`.
+  `frontend/src/lib/money.js` → `roundMoney()`/`formatMoney()` (PKR,
+  `Rs 1,234.50`, comma-grouped, `-Rs X.XX` for negatives).
 - Prices: `lib/pricing.js` (`getLatestSellingPrice`/`getLatestBuyingPrice`).
 - Validation: `lib/validators.js`. Pagination/sorting: `lib/query.js`.
 - Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
@@ -53,15 +53,14 @@ Check for an existing helper before creating new logic.
   `generateUniquePurchaseId`), `models/StockBatch.js`. Deduct Stock uses
   `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
   checkout/offline sync always use plain `consumeFIFO`.
-- Sequential ID generation: `models/Counter.js` — a generic
-  `{ _id, seq }` doc, incremented atomically (`findOneAndUpdate($inc)`).
+- Sequential IDs: `models/Counter.js` (`{_id, seq}`, atomic increment);
   `routes/products.js`'s `nextProductId()` is the first consumer.
 - Frontend API calls: `frontend/src/lib/api.js`.
-- Toasts/confirms (Stage 5, migrated Stage 6): `sonner`'s `<Toaster>`
-  mounted in `App.jsx`, use `toast()`/`.success()`/`.error()`;
-  `frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
-  (mounted in `App.jsx`) and `useConfirm()` — `if (await confirm('Delete
-  this?')) { ... }`. Zero `alert()`/`confirm()` remain in `pages/`.
+- Toasts/confirms (Stage 5/6): `sonner`'s `<Toaster>` mounted in
+  `App.jsx`, use `toast()`/`.success()`/`.error()`;
+  `ConfirmDialog.jsx` exports `ConfirmProvider` + `useConfirm()` —
+  `if (await confirm('Delete this?')) { ... }`. No raw `alert()`/
+  `confirm()` remain in `pages/`.
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
 
@@ -144,25 +143,22 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `NoSupplier`) or **Deduct Stock** (required reason + note, via
   `consumeFIFO()`) — `returned_to_supplier` credits supplier
   `creditBalance` (no `Loss`), every other reason writes one `Loss` doc.
-- **Zero-stock auto-disable** (Stage 9a): `disableIfDepleted()`
-  (`lib/costing.js`) sets `Product.disabled` true the instant `quantity`
-  hits 0 (checkout, offline sync, Deduct Stock); only Add Stock clears
-  it — disabled products stay visible (greyed out) but won't reserve.
-  **Hard delete** (Stage 9c): `DELETE /product/:productID` requires
-  `{reason, note}`, 400s if `quantity > 0`; audit annotation only.
-- **UI polish** (Stage 10, corrected): Products form uses blue=Add/
-  yellow=Update, 2-column grid; Supplier is Add-mode only. Billing's cart
-  preview is stacked receipt-lines with a "Customer Balance" line
+- **Zero-stock auto-disable/hard delete** (Stage 9a/9c):
+  `disableIfDepleted()` (`lib/costing.js`) sets `Product.disabled` true
+  at `quantity` 0 (checkout, offline sync, Deduct Stock; only Add Stock
+  clears it) — stays visible, greyed out, won't reserve. `DELETE
+  /product/:productID` requires `{reason, note}`, 400s if `quantity > 0`.
+- **UI polish** (Stage 10): Products form uses blue=Add/yellow=Update,
+  2-column grid, Supplier Add-mode only. Billing's cart preview is
+  stacked receipt-lines with a "Customer Balance" line
   (`totalBalanceDue - creditBalance`, pre-sale, Stage 11). Special Bill
-  (a second receipt layout) was removed in Stage 16 — `Billing.jsx` only
-  ever produces the standard `printReceiptFor` receipt now.
-- Audit records are written through `logAudit()`. Stage 3 replaced
-  `AuditLog.jsx`'s raw JSON dump with a flattened table
-  (`lib/flattenObject.js`). Stage 4 added `?format=pdf` to every export
-  route (`lib/pdf.js`'s `sendTablePDF()`); Stage 9b added a 6th route,
-  `/api/export/losses`. `Reports.jsx`'s `EXPORTS` array drives the cards.
-  Indexed: `Order.orderDate`, `Order.customerName`, `Product.category`;
-  `Supplier.supplierName` relies on `unique: true`.
+  was removed (Stage 16) — `printReceiptFor` is the only receipt path.
+- Audit records go through `logAudit()`; `AuditLog.jsx` shows a
+  flattened table (`lib/flattenObject.js`, Stage 3). Every export route
+  supports `?format=pdf` (`lib/pdf.js`'s `sendTablePDF()`; Stage 9b added
+  `/api/export/losses`), driven by `Reports.jsx`'s `EXPORTS` array.
+  Indexed: `Order.orderDate`/`customerName`, `Product.category`;
+  `Supplier.supplierName` is `unique: true`.
 - Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
@@ -178,34 +174,30 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
   Stock `returned_to_supplier` reason adjusts *supplier* credit
   instead — keep the two paths separate.
-- **Order edits — add vs. reduce** (Stage 14): `POST
-  /api/order/:orderID/edit` branches on `action`. No `action` is the
-  original reduction path (`applyLineReduction`). `action: 'add'` is
-  `applyLineAddition` — a new `productID` not already on the order,
-  added at current selling price via the same `consumeFIFO`/
-  `disableIfDepleted` checkout uses. No discount on an added line.
-  `editHistory.action`: `'edit'|'refund'|'add'`.
-- **Walk-in → customer conversion** (Stage 14): `POST /customer/create`
-  is upsert-style (unlike `updateCustomer`, which 404s on missing).
-  `POST /api/order/:orderID/convert-customer` reattaches a
-  `WALKIN_CUSTOMER`-sentinel order to an already-created customer.
-  Frontend calls both in sequence, not combined.
-- **Refund = Cash Back, Exchange = Store Credit** (Stage 16, UI only —
-  backend already enforced this). `Orders.jsx`'s Refund box always
-  refunds every line at full quantity, no per-item picker; the two
-  "Exchange" boxes are the only path touching store credit.
-  `Suppliers.jsx`'s purchase-history rows use a `Status` column
-  (`Due`/`Credit`/`Settled`) plus a separate `Credit Used` column.
+- **Order edits & walk-in conversion** (Stage 14): `POST
+  /api/order/:orderID/edit` branches on `action` — no `action` is the
+  original reduction path (`applyLineReduction`); `action: 'add'` is
+  `applyLineAddition`, a new line at current selling price via
+  `consumeFIFO`/`disableIfDepleted`, no discount
+  (`editHistory.action`: `'edit'|'refund'|'add'`). `POST
+  /customer/create` (upsert-style) + `POST
+  /api/order/:orderID/convert-customer` reattach a `WALKIN_CUSTOMER`-
+  sentinel order to a newly created customer — frontend calls both in
+  sequence, not combined.
+- **Refund = Cash Back, Exchange = Store Credit** (Stage 16, UI only,
+  backend already enforced it). `Orders.jsx`'s Refund box always refunds
+  every line at full quantity; the two "Exchange" boxes are the only
+  path touching store credit. `Suppliers.jsx`'s purchase-history rows
+  use a `Status` column (`Due`/`Credit`/`Settled`) + `Credit Used`.
 - User management: `routes/users.js` covers admin create/delete/
-  reset-password (`/api/users*`) and self-service password change
-  (`/api/users/me/password`); every password write refreshes
-  `passwordChangedAt`. Deleting your own account or the last admin is
-  blocked. `Users.jsx` at `/workers` (admin-only) is the only UI surface.
+  reset-password (`/api/users*`) + self-service password change
+  (`/api/users/me/password`; every write refreshes `passwordChangedAt`).
+  Deleting your own account or the last admin is blocked. `Users.jsx`
+  at `/workers` (admin-only) is the only UI surface.
 - `POST /product/undo` validates `productId` with `isValidProductId()`.
   `loginLimiter` (`middleware/rateLimit.js`): `max: 20`/15min,
   `skipSuccessfulRequests: true`. `getDashboardSummary` derives
-  `refundedOrders`/`refundedAmount` from one `Refund.aggregate` scoped
-  by `refundDate`.
+  `refundedOrders`/`refundedAmount` from one `Refund.aggregate`.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
@@ -233,6 +225,15 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   (mounted next to `SyncOverlay`) shows a banner while `isOffline()` is
   true — independent of `navigator.onLine`, so it also fires when only
   the backend, not the network adapter, is down.
+- **Thermal printing, Web USB** (Stage 18): `frontend/src/lib/
+  thermalPrint.js` — `pairThermalPrinter()` needs a real click
+  (`navigator.usb.requestDevice`, Billing's header "Connect Thermal
+  Printer" button) vs. silent `getPairedPrinter()`/`tryThermalPrint()`
+  (`getDevices()`, never prompts). `Billing.jsx`'s `printReceiptFor` is
+  now async: tries `tryThermalPrint()` first, falls back to the
+  unchanged `printReceipt()` popup on `false`/failure. USB only (no
+  Serial/network printers); `Orders.jsx`'s revised-receipt print is
+  untouched.
 
 ## Request flow
 

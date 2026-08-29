@@ -6,6 +6,7 @@ import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { roundMoney, formatMoney } from '../lib/money';
 import { printReceipt } from '../lib/print';
+import { isWebUSBSupported, getPairedPrinter, pairThermalPrinter, tryThermalPrint } from '../lib/thermalPrint';
 import { isOfflineSyncEnabled, enqueueSale, saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/offlineQueue';
 import { isNetworkError, flushQueue } from '../lib/offlineSync';
 
@@ -73,6 +74,34 @@ export default function Billing() {
     };
   }, [offlineSyncEnabled]);
 
+  // Stage 18: reflects whether a thermal printer has already been paired
+  // in this browser (navigator.usb.getDevices() — silent, no prompt).
+  // Purely informational for the "Connect Thermal Printer" button; the
+  // actual print attempt in printReceiptFor re-checks this itself.
+  const [printerConnected, setPrinterConnected] = useState(false);
+  const webUSBSupported = isWebUSBSupported();
+
+  useEffect(() => {
+    if (!webUSBSupported) return;
+    getPairedPrinter().then((device) => setPrinterConnected(!!device));
+    const onChange = () => getPairedPrinter().then((device) => setPrinterConnected(!!device));
+    navigator.usb.addEventListener('connect', onChange);
+    navigator.usb.addEventListener('disconnect', onChange);
+    return () => {
+      navigator.usb.removeEventListener('connect', onChange);
+      navigator.usb.removeEventListener('disconnect', onChange);
+    };
+  }, [webUSBSupported]);
+
+  const handleConnectPrinter = async () => {
+    const device = await pairThermalPrinter();
+    if (device) {
+      setPrinterConnected(true);
+      toast.success(`Thermal printer paired: ${device.productName || 'USB printer'}`);
+    } else {
+      toast.error('No printer selected. Bills will use the manual print dialog.');
+    }
+  };
 
   const loadProducts = () =>
     api
@@ -505,7 +534,38 @@ export default function Billing() {
   // normal (online) success path and the Stage 11 offline-queued path
   // can share it — `offline` just adds a visible marker so the printed
   // slip is honest about not being a confirmed sale yet.
-  const printReceiptFor = (total, paidNum, offline = false) => {
+  //
+  // Stage 18: now async — tries a direct thermal (ESC/POS/Web USB) print
+  // first via tryThermalPrint(); that call is self-contained and never
+  // throws, resolving `false` for "no printer paired" same as any other
+  // failure. Only on `false` does it fall through to exactly the same
+  // popup-print flow as before this stage.
+  const printReceiptFor = async (total, paidNum, offline = false) => {
+    const settlementLabel = paidNum >= total ? 'Change' : 'Balance Due (Credit)';
+    const settlementAmount = formatMoney(Math.abs(paidNum - total));
+
+    if (webUSBSupported) {
+      const printed = await tryThermalPrint({
+        billId,
+        offline,
+        items: Object.entries(billingItems).map(([, item]) => {
+          const subtotal = item.unitPrice * item.quantity;
+          const net = roundMoney(subtotal - subtotal * (item.discount / 100));
+          return { itemName: item.itemName, quantity: item.quantity, unitPriceLabel: formatMoney(item.unitPrice), netLabel: formatMoney(net) };
+        }),
+        discountLabel: totalDiscount > 0 ? formatMoney(totalDiscount) : null,
+        totalLabel: formatMoney(total),
+        paidLabel: formatMoney(paidNum),
+        settlementLabel,
+        settlementAmountLabel: settlementAmount,
+        customer,
+      });
+      if (printed) {
+        toast.success('Printed to thermal printer.');
+        return;
+      }
+    }
+
     const rows = Object.entries(billingItems)
       .map(([key, item]) => {
         const subtotal = item.unitPrice * item.quantity;
@@ -526,7 +586,7 @@ export default function Billing() {
       ${totalDiscount > 0 ? `<div class="totals"><span>Discount</span><span>-${formatMoney(totalDiscount)}</span></div>` : ''}
       <div class="totals"><span>Grand Total</span><span>${formatMoney(total)}</span></div>
       <div class="totals"><span>Paid</span><span>${formatMoney(paidNum)}</span></div>
-      <div class="totals"><span>${paidNum >= total ? 'Change' : 'Balance Due (Credit)'}</span><span>${formatMoney(Math.abs(paidNum - total))}</span></div>
+      <div class="totals"><span>${settlementLabel}</span><span>${settlementAmount}</span></div>
       <div style="margin-top:8px;">Customer: ${customer}</div>
     `;
     printReceipt(html);
@@ -573,7 +633,7 @@ export default function Billing() {
         return;
       }
 
-      printReceiptFor(total, paidNum);
+      await printReceiptFor(total, paidNum);
       toast.success('Order saved successfully.');
       resetBill();
       setCustomer('unknown');
@@ -604,7 +664,7 @@ export default function Billing() {
             paymentMethod,
             createdOfflineAt: new Date().toISOString(),
           });
-          printReceiptFor(total, paidNum, true);
+          await printReceiptFor(total, paidNum, true);
           toast.success('No connection — this bill has been saved on this device and will sync automatically once you\'re back online.');
           resetBill();
           setCustomer('unknown');
@@ -663,6 +723,14 @@ export default function Billing() {
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-brand">Creating Invoice</h1>
+            {webUSBSupported && (
+              <button
+                onClick={handleConnectPrinter}
+                className={`text-sm px-3 py-1.5 rounded-lg border ${printerConnected ? 'border-green-300 bg-green-50 text-green-700' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                {printerConnected ? '🖨️ Thermal Printer Connected' : '🖨️ Connect Thermal Printer'}
+              </button>
+            )}
             <select
               value={showCustomerForm ? 'New Customer' : customer}
               onChange={(e) => handleCustomerSelect(e.target.value)}
