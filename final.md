@@ -788,14 +788,136 @@ its own existing tests.
 
 ---
 
+## Stage 18 — Thermal receipt printing, with manual-print fallback
+
+**Raised 2026-08-29** by Hassan: bills should print on a thermal
+receipt printer (the kind used at supermarket checkouts) automatically
+when generating a bill. If no thermal printer is available or
+connected, the system should fall back to the existing manual/browser
+print flow — not fail silently and not block the sale.
+
+**Current state:** `printReceiptFor()` in `Billing.jsx` always calls the
+shared `printReceipt(html)` helper (`frontend/src/lib/print.js`), which
+opens a popup window and calls `window.print()` — a manual, OS
+print-dialog flow. This is the "manual print" path that must remain as
+the fallback; it is not being replaced.
+
+**Affected areas:**
+- New `frontend/src/lib/thermalPrint.js` — attempts a direct print to a
+  connected thermal printer first. Likely approach: Web Serial API
+  (`navigator.serial`) or Web USB API (`navigator.usb`) for a
+  locally-connected ESC/POS printer, generating raw ESC/POS commands for
+  a plain-text/monospace receipt layout (no HTML/CSS, thermal printers
+  don't render either). Exposes something like
+  `tryThermalPrint(receiptData) → Promise<boolean>` (resolves `true` on
+  success, `false`/rejects if no printer is available, permission is
+  denied, or the write fails) so the caller can fall back cleanly.
+- `Billing.jsx`'s `printReceiptFor()` — try `tryThermalPrint()` first;
+  on `false`/rejection, fall through to the existing `printReceipt(html)`
+  popup path unchanged. No change to what data is in the receipt, only
+  how/where it's sent.
+- A visible-but-quiet indicator of which path was used (e.g. a toast
+  "Printed to thermal printer" vs. no toast, silently falling back to
+  the browser print dialog) — exact UX to confirm with Hassan once this
+  stage starts, not fixed here.
+
+**Explicitly out of scope:** printer configuration UI (selecting a
+printer, saving a chosen device across sessions) beyond whatever the
+browser's own pairing prompt requires; support for network/Bluetooth
+thermal printers (Serial/USB only, matching a typical single-shop
+desktop setup); receipt template redesign — the printed content mirrors
+the existing HTML receipt's data, just re-rendered for a thermal
+printer's width and font.
+
+**Open questions to confirm before starting:** exact thermal printer
+model/interface Hassan's client has (Serial/USB, ESC/POS-compatible),
+and whether this needs to work inside the Electron desktop build only
+or also in an ordinary browser tab during development — Web Serial/USB
+support differs between the two.
+
+**Completion criteria:** with a supported thermal printer connected,
+generating a bill prints directly to it with no popup/print-dialog
+shown; with no thermal printer connected (or the browser lacks
+Serial/USB support), generating a bill falls back to exactly today's
+manual popup-print flow, unchanged; a rejected/cancelled browser
+permission prompt for the printer is treated the same as "not
+available" and falls back, it does not block or fail the sale.
+
+---
+
+## Stage 19 — Overpayment prompt: change back vs. customer balance
+
+**Raised 2026-08-29** by Hassan: when a customer pays more than the
+bill total, the cashier should be prompted (via toast) to choose
+whether the excess is handed back as cash change or stored as credit on
+the customer's account — and whichever is chosen should actually take
+effect, not just be displayed.
+
+**Current state, confirmed in `routes/billing.js`'s draft-commit
+handler:** `amountPaid` is deliberately capped at `netOwed`
+(`Math.min(Math.max(draft.paidInput || 0, 0), netOwed)`) — this is an
+explicit existing decision, documented inline, that any excess is
+"change handed back to the customer, not credit applied to the order."
+The overpaid amount is never persisted anywhere today; it's only shown
+on the printed receipt as a "Change" line
+(`printReceiptFor()`/`Billing.jsx`). Overpayment *is* already turned
+into `creditBalance` elsewhere in the app, but only when it's freed up
+by an **edit or refund** on an existing order (`routes/orders.js`), not
+at initial checkout — that mechanism is not being changed here.
+
+**Affected areas:**
+- `Billing.jsx` — when `paidNum > grandTotal` at the point
+  `handleGenerateBill` would otherwise proceed, show a toast (`sonner`,
+  matching the Stage 5/6 toast/confirm conventions already in place)
+  asking the cashier to choose "Give change" or "Add to customer
+  balance" for the overpaid amount, before the order is saved. A
+  walk-in sale (`customer === 'unknown'`) cannot carry a balance, so
+  this prompt only makes sense for a real selected customer — confirm
+  with Hassan what should happen for walk-in overpayment (most likely:
+  always change, no prompt, since there's no account to credit).
+- The cashier's choice needs to reach the backend alongside the
+  existing draft-commit call — likely a new field on the draft
+  (`draft.overpaymentChoice` or similar) set via a small API call before
+  `api.saveOrder()`, mirroring how `paidInput`/`paymentMethod` are
+  already persisted to the draft rather than sent as a trusted request
+  param (see Stage 4's tamper-resistance note in `routes/billing.js`).
+- `routes/billing.js`'s draft-commit handler — if "Add to customer
+  balance" was chosen, credit `customerDoc.creditBalance` by the
+  overpaid amount (`draft.paidInput - netOwed`) inside the same
+  transaction that already reads/updates `creditBalance` for credit
+  auto-apply, instead of silently discarding it. If "Give change" was
+  chosen (or no customer, or no choice needed because paid ≤ total),
+  behavior is exactly what it is today — no `creditBalance` change.
+- Receipt output (`printReceiptFor()`) should reflect which happened —
+  "Change: Rs X" vs. "Rs X added to customer balance" — instead of
+  always labeling it "Change" for any overpayment.
+
+**Explicitly out of scope:** touching the existing edit/refund
+overpayment-to-credit logic in `routes/orders.js` (Stage 5's mechanism)
+— that flow doesn't involve a cashier choice today and this stage isn't
+asking it to; retroactively offering the choice for offline-queued
+sales synced later (`lib/offlineSync.js`) — confirm with Hassan whether
+offline overpayment should default to change (matching today's
+behavior) or need its own prompt on reconnect, since the cashier isn't
+present at sync time.
+
+**Completion criteria:** paying more than the total for a real customer
+triggers a toast asking change-vs-balance before the sale commits;
+choosing "balance" increases that customer's `creditBalance` by exactly
+the overpaid amount and the printed receipt says so; choosing "change"
+(or a walk-in sale) behaves exactly as today — nothing persisted, "Change"
+shown on the receipt; no double-counting against the existing edit/
+refund credit mechanism.
+
+---
 
 
-All items previously listed here (Exchange process improvements, Offline
-management overhaul, Dashboard offline-billing visibility) are now
-scoped as Stages 12–14 above. Stage 16 (2026-08-29) was raised and
-scoped directly, not staged here first. Nothing remains deferred as of
-this update. This section is kept as a placeholder — if new unscoped
-items come up, they belong here until triaged into a numbered stage.
+
+Stages 18–19 above were raised directly by Hassan on 2026-08-29 and
+scoped straight into numbered stages, same as Stage 16. Nothing else
+remains deferred as of this update. This section is kept as a
+placeholder — if new unscoped items come up, they belong here until
+triaged into a numbered stage.
 
 ## Already covered, no work needed
 
