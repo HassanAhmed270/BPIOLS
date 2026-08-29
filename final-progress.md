@@ -187,3 +187,44 @@ calculation needed to change. Verified: `frontend` build clean, `oxlint`
 files touched). Known/open: no live browser — the new Supplier columns,
 full-refund-only flow, and Special Bill's removal are code-reviewed
 only; recommend a manual check of each once merged.
+
+**2026-08-29 — Stage 17 complete.** App-wide friendly offline/
+unreachable-server handling. Raised directly by Hassan after killing the
+backend (`node main.js`) while the frontend dev server stayed up and
+seeing raw `ECONNREFUSED` proxy noise — asked that the app "survive
+properly if already logged in." Confirmed already correct, untouched:
+`AuthContext.jsx`'s silent refresh already swallows a connectivity
+failure without logging anyone out (only a genuine 401 does); Billing's
+`handleAddToBill`/`handleGenerateBill` already fall back to the
+IndexedDB offline queue via `isNetworkError(err)`
+(`err instanceof TypeError`, from `lib/offlineSync.js`), independent of
+`navigator.onLine` — so they already survive this exact scenario
+(backend down, network adapter still up). The actual gap: every page's
+existing try/catch showed the raw browser error text ("Failed to
+fetch") instead of a friendly message, and no page but Billing had any
+shared "can't reach the server" signal. New `frontend/src/lib/
+networkStatus.js`: a tiny pub-sub (`markOffline`/`markOnline`/
+`subscribeNetworkStatus`/`isOffline`), mirroring `offlineSync.js`'s
+existing `subscribeAutoSync` pattern. `lib/api.js`'s `request()` (and
+`downloadExport()`, which bypasses it) now catches a raw `fetch()`
+failure, calls `markOffline()`, and sets a friendlier `.message` on the
+*same* `TypeError` object rather than throwing a new `Error` — critical,
+since `isNetworkError()`'s `err instanceof TypeError` check would
+otherwise stop matching and silently break Billing's offline-queue
+fallback; `markOnline()` fires on any response reaching the server at
+all, even non-2xx. New `frontend/src/components/
+NetworkStatusBanner.jsx`, mounted once in `App.jsx` next to
+`SyncOverlay`, shows a slim app-wide banner while `isOffline()` is true.
+No changes to `Billing.jsx`, `offlineSync.js`, or `AuthContext.jsx` — all
+three already correct. **Affected files:** new `lib/networkStatus.js`,
+new `components/NetworkStatusBanner.jsx`, `lib/api.js`, `App.jsx`.
+Verified: `frontend` build clean, `oxlint` 0 errors on all four touched/
+added files, `frontend npm test` 10/10 (confirms `isNetworkError`'s
+`TypeError` check still holds), root `npm test` 66/66 (unaffected, no
+backend files touched). Known/open: no live browser in this sandbox —
+the banner's actual appearance/disappearance against a real killed
+backend is code-reviewed only; recommend once merged: start both
+servers, log in, stop the backend process, confirm the banner appears
+and a Products/Customers/etc. load shows the new friendly message
+instead of "Failed to fetch," confirm the session stays logged in,
+restart the backend and confirm the banner clears on the next request.
