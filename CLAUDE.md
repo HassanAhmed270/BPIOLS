@@ -3,8 +3,8 @@
 The `production.md` phase (Stage 1–8) is complete and merged. This repo
 is now in a separate **final-fixes phase**, defined by `final.md`. The
 app remains feature-complete; current work is further correctness/UX/
-workflow fixes identified after production-hardening closed. Stages 1–14
-and 16 of `final.md` are complete as of this update; Stage 15 is next.
+workflow fixes identified after production-hardening closed. Stages
+1–16 of `final.md` are complete as of this update.
 
 ## Document authority
 
@@ -12,10 +12,9 @@ and 16 of `final.md` are complete as of this update; Stage 15 is next.
   rules. `final-progress.md` — append-only log for this phase.
 - `production.md`/`production-progress.md` and `progress.md` — earlier
   phases' plans/logs, complete and historical; different Stage numbering,
-  do not reuse it here.
-Final-fixes stages start at **Stage 1** and follow `final.md` only (three
-independent stage-numbering sequences exist in this repo: this phase,
-`production.md`, and the original build).
+  do not reuse it here. Final-fixes stages start at **Stage 1** and
+  follow `final.md` only (three independent numbering sequences exist
+  in this repo: this phase, `production.md`, and the original build).
 
 ## Start every task by syncing
 
@@ -57,7 +56,6 @@ Check for an existing helper before creating new logic.
   `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
   checkout/offline sync always use plain `consumeFIFO`.
 - Sequential ID generation: `models/Counter.js` — a generic
-<<<<<<< HEAD
   `{ _id, seq }` doc, incremented atomically (`findOneAndUpdate($inc)`).
   `routes/products.js`'s `nextProductId()` is the first consumer.
 - Frontend API calls: `frontend/src/lib/api.js`.
@@ -66,18 +64,6 @@ Check for an existing helper before creating new logic.
   `frontend/src/components/ConfirmDialog.jsx` exports `ConfirmProvider`
   (mounted in `App.jsx`) and `useConfirm()` — `if (await confirm('Delete
   this?')) { ... }`. Zero `alert()`/`confirm()` remain in `pages/`.
-=======
-  `{ _id, seq }` doc per counter key, incremented atomically via
-  `findOneAndUpdate($inc)`. `routes/products.js`'s `nextProductId()` is
-  the first consumer; reuse this rather than adding an ad-hoc counter.
-- Frontend API calls: `frontend/src/lib/api.js`. Toasts/confirms (Stage
-  5, migrated Stage 6): `sonner`'s `<Toaster>` mounted in `App.jsx`, use
-  `toast()`/`.success()`/`.error()`; `ConfirmDialog.jsx` exports
-  `ConfirmProvider` (mounted in `App.jsx`) and `useConfirm()` — `if
-  (await confirm('Delete this?')) { ... }`. Zero `alert()`/`confirm()`
-  remain in `pages/`.
->>>>>>> stage16
-
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
 
@@ -98,9 +84,8 @@ not separately strip comments from files a stage doesn't otherwise touch.
   Frontend unit tests (Stage 12, `fake-indexeddb`-backed) run via
   `npm --prefix frontend test`, separate from root `npm test`.
 - `npm test` before calling any stage done — a stage that breaks an
-  existing test is not complete.
-- Clean up test artifacts (`node_modules`, `.env`, `dist/`, logs) before
-  packaging deliverables.
+  existing test is not complete. Clean up test artifacts (`node_modules`,
+  `.env`, `dist/`, logs) before packaging deliverables.
 - No push credentials exist for this repo — never claim a change is
   pushed/live on GitHub; it isn't until Hassan merges it.
 
@@ -196,7 +181,6 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
   `Refund.settlement`/`creditGenerated` carry this at each level.
   `recomputeOrderTotals` returns the freed settlement rather than letting
-<<<<<<< HEAD
   it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
   Stock `returned_to_supplier` reason adjusts *supplier* credit
   instead — keep the two paths separate.
@@ -213,24 +197,6 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `POST /api/order/:orderID/convert-customer` reattaches a
   `WALKIN_CUSTOMER`-sentinel order to an already-created customer.
   Frontend calls both in sequence, not combined.
-- User management: `routes/users.js` covers admin create/delete/
-  reset-password (`/api/users*`) and self-service password change
-=======
-  it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct Stock
-  `returned_to_supplier` reason adjusts *supplier* credit instead — keep
-  the two paths separate.
-- **Order edits** (Stage 14): `POST /api/order/:orderID/edit` branches
-  on `action`. No `action` (or anything but `'add'`) is the original
-  reduction path (`applyLineReduction`, `newQty ≤` existing quantity).
-  `action: 'add'` is `applyLineAddition` — a *new* `productID`, added at
-  current selling price via the same `consumeFIFO`/`disableIfDepleted`
-  checkout uses; rejects a `productID` already present. No discount on
-  an added line. `editHistory.action`: `'edit'|'refund'|'add'`.
-  Separately, `POST /customer/create` is upsert-style (distinct from
-  `updateCustomer`, which 404s on missing) and
-  `POST /api/order/:orderID/convert-customer` reattaches a
-  `WALKIN_CUSTOMER`-sentinel order to an already-created customer,
-  pushing it onto `Customer.orders` — frontend calls both in sequence.
 - **Refund = Cash Back, Exchange = Store Credit** (Stage 16, UI only —
   backend already enforced this). `Orders.jsx`'s Refund box always
   refunds every line at full quantity, no per-item picker; the two
@@ -238,15 +204,13 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   path touching store credit. `Suppliers.jsx`'s purchase-history rows
   use a `Status` column (`Due`/`Credit`/`Settled`) plus a separate
   `Credit Used` column — don't fold the two into one cell.
-- User management: `routes/users.js` — admin create/delete/
-  reset-password (`/api/users*`) + self-service password change
->>>>>>> stage16
+- User management: `routes/users.js` covers admin create/delete/
+  reset-password (`/api/users*`) and self-service password change
   (`/api/users/me/password`); every password write refreshes
   `passwordChangedAt`. Deleting your own account or the last admin is
   blocked. `Users.jsx` at `/workers` (admin-only) is the only UI surface.
-- `POST /product/undo` validates `productId` with `isValidProductId()`,
-  same as `POST /api/product`'s update path. `loginLimiter`
-  (`middleware/rateLimit.js`): `max: 20`/15min,
+- `POST /product/undo` validates `productId` with `isValidProductId()`.
+  `loginLimiter` (`middleware/rateLimit.js`): `max: 20`/15min,
   `skipSuccessfulRequests: true` — tuned for a single shared shop IP.
   `getDashboardSummary` derives `refundedOrders`/`refundedAmount` from
   one `Refund.aggregate` scoped by `refundDate`.
@@ -258,9 +222,9 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `offlineOrders` on `Dashboard.jsx`. Stage 13 also added a 60s debounced
   reconnect delay (`RECONNECT_DELAY_MS`), an auto-sync-only pub-sub
   (`subscribeAutoSync`/`isAutoSyncing`) driving `SyncOverlay.jsx` (manual
-  "Sync Now" bypasses it), and `verifyOrderExists()` (3 attempts,
-  backoff) before trusting a "synced" result — `conflict` only on
-  genuine not-found, else `pending`. Commit/transaction/replay unchanged.
+  "Sync Now" bypasses it), and `verifyOrderExists()` (backoff) before
+  trusting a "synced" result — `conflict` only on genuine not-found,
+  else `pending`. Commit/transaction/replay unchanged.
 - Draft persistence has two layers in `Billing.jsx` — don't conflate
   them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
   silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
