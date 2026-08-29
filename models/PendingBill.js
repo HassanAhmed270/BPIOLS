@@ -17,6 +17,12 @@ const pendingBillSchema = new Schema({
   // survive a refresh and be tamper-resistant the same way (Stage 5).
   paidInput: { type: Number, min: 0, default: 0 },
   paymentMethod: { type: String, enum: ['cash', 'card', 'other'], default: 'cash' },
+  // Stage 19: the cashier's choice for how an overpayment (paidInput
+  // beyond what's owed) is settled at commit time — 'change' handed
+  // back (today's only behavior, still the default) or 'balance'
+  // credited to the customer's account. Carried in the draft, same
+  // tamper-resistance reason as paidInput/paymentMethod above.
+  overpaymentChoice: { type: String, enum: ['change', 'balance'], default: 'change' },
   items: [
     {
       productID: { type: String, required: true, match: /^#\d{4}$/ },
