@@ -653,13 +653,83 @@ product with one batch (or none) shows no picker and behaves exactly as
 Stage 9 already verified. `npm test` still passes; boot-tested;
 `final-progress.md` updated.
 
+## Stage 16 — Supplier/Orders UI clarity, Special Bill removal
+
+**Raised 2026-08-29**, directly by Hassan, frontend-only, three
+independent parts landed together since each is small.
+
+**16a — Supplier purchase history UI.** `Suppliers.jsx`'s expanded
+purchase-history table folded a purchase's settlement status and its
+"existing credit used" note into one `Balance` cell (color + sign +
+small text underneath) — confusing, and not the same shape as the
+top-level per-supplier `Balance` column. Replaced with a `Status`
+column using plain labels (`Due Rs X` / `Credit +Rs X` / `Settled`) and
+a separate `Credit Used` column. No calculation changed — same
+`p.balanceDue`/`p.creditGenerated`/`p.creditApplied` fields, relabeled
+and split, not recomputed.
+
+**16b — Orders refund/exchange UI + flow.** The "Refund items" box let
+an admin check individual items and edit quantities before submitting —
+functionally a second line-item-editor duplicating "Edit a line item"
+above it, even though a refund's `settlement` was already hardcoded
+`'cash'` and always finalized the whole order (`status: 'refunded'`).
+Replaced with a fixed **Refund Full Order (Cash Back)** action: every
+line at its full order quantity, no per-item picker, same `settlement:
+'cash'`. "Edit a line item" relabeled **Exchange — reduce a line item
+(Store Credit)** and "Add a new item" relabeled **Exchange — add a
+replacement item (Store Credit)** — no behavior change, both already
+settle via store credit only (backend ignores any `settlement` sent on
+`/api/order/:orderID/edit` and always resolves credit-or-none itself).
+The printed "Revised Receipt" edit-history rows previously always
+printed `Store Credit: Rs X` regardless of what that row actually
+settled as (including `Rs 0.00` on rows that settled nothing, and on
+refund-sourced rows that were actually cash) — now labels each row
+`Exchange — Store Credit: Rs X` / `Cash Back: Rs X` / `—` to match what
+the on-screen Edit History already did.
+
+**16c — Special Bill removed.** The whole "Special Bill" (catering-
+invoice-style second receipt layout, `Stage 17` in the old
+`production.md` numbering) is gone: the button, its preview modal, the
+`showSpecialPreview` state, and `printSpecialReceiptFor` in
+`Billing.jsx`. Generate Bill only ever produces the standard
+`printReceiptFor` receipt now. `customerDirectory` (the
+mobile/address/email/credit lookup Special Bill also read from) stays —
+it's still what backs the Customer Balance line and the store-credit
+note, unrelated to Special Bill's removal.
+
+**Affected areas:** `frontend/src/pages/Suppliers.jsx`,
+`frontend/src/pages/Orders.jsx`, `frontend/src/pages/Billing.jsx`. No
+backend routes touched — all three parts are presentation-layer only,
+confirmed against `routes/suppliers.js` and `routes/orders.js` before
+starting that no calculation needed to change.
+
+**Incidental (one-line, obviously correct):** removed a leftover debug
+`console.log('REFUND RESPONSE:', data)` in `Orders.jsx`'s refund
+handler, pre-existing, no functional effect.
+
+**Testing/validation:** `npm run build` clean; `oxlint` on all three
+touched files, 0 errors; boot-tested (`GET /api/orders`, `GET
+/api/products`, `POST /supplier/purchase`, `POST
+/api/order/:id/refund`, `POST /api/order/:id/edit` all 401 with no
+token); root `npm test` 66/66; `frontend npm test` 10/10.
+
+**Completion criteria:** Supplier purchase history shows Due/Credit/
+Settled plus a separate Credit Used column, nothing folded together;
+Orders' Refund box always refunds the full order for cash with no
+per-item picker, Exchange stays store-credit-only and is labeled as
+such, the printed revised receipt matches; no Special Bill button,
+modal, or handler remains anywhere in `Billing.jsx`.
+
+---
+
 ## Deferred — not yet scoped
 
 All items previously listed here (Exchange process improvements, Offline
 management overhaul, Dashboard offline-billing visibility) are now
-scoped as Stages 12–14 above. Nothing remains deferred as of this
-update. This section is kept as a placeholder — if new unscoped items
-come up, they belong here until triaged into a numbered stage.
+scoped as Stages 12–14 above. Stage 16 (2026-08-29) was raised and
+scoped directly, not staged here first. Nothing remains deferred as of
+this update. This section is kept as a placeholder — if new unscoped
+items come up, they belong here until triaged into a numbered stage.
 
 ## Already covered, no work needed
 

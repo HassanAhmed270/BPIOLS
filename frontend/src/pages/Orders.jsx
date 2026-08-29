@@ -46,7 +46,6 @@ export default function Orders() {
   const [editForm, setEditForm] = useState({ productID: '', removeQty: '', reason: '' });
   const [addForm, setAddForm] = useState({ productID: '', quantity: '', reason: '' });
   const [convertForm, setConvertForm] = useState({ customerName: '', mobileNo: '', email: '', address: '' });
-  const [refundForm, setRefundForm] = useState({});
   const [refundReason, setRefundReason] = useState('');
   const loadOrders = async () => {
     setLoading(true);
@@ -104,7 +103,6 @@ export default function Orders() {
     setEditForm({ productID: '', removeQty: '', reason: '' });
     setAddForm({ productID: '', quantity: '', reason: '' });
     setConvertForm({ customerName: '', mobileNo: '', email: '', address: '' });
-    setRefundForm({});
     setRefundReason('');
     try {
       const data = await api.getOrder(orderID);
@@ -220,23 +218,15 @@ export default function Orders() {
     }
   };
 
-  const toggleRefundItem = (productID, maxQty) => {
-    setRefundForm((prev) => {
-      const next = { ...prev };
-      if (next[productID] !== undefined) delete next[productID];
-      else next[productID] = maxQty;
-      return next;
-    });
-  };
-
   const handleRefundSubmit = async (e) => {
     e.preventDefault();
-    const items = Object.entries(refundForm)
-      .filter(([, qty]) => parseInt(qty) > 0)
-      .map(([productID, qty]) => ({ productID, quantity: parseInt(qty) }));
-    if (items.length === 0) return toast.error('Select at least one item to refund.');
+    // Refund = Cash Back, full order only. No per-item/partial selection —
+    // that's the exchange form's job. Every line on the order, at its
+    // full remaining quantity, goes back.
+    const items = detail.order.products.map((p) => ({ productID: p.productID, quantity: p.quantity }));
+    if (items.length === 0) return toast.error('This order has no items left to refund.');
     if (!refundReason.trim()) return toast.error('A reason is required.');
-    if (!(await confirm(`Refund ${items.length} item(s) on ${expandedID}? This marks the whole order as refunded.`))) return;
+    if (!(await confirm(`Refund the full order ${expandedID} for cash back? This marks the whole order as refunded.`))) return;
 
     try {
       const data = await api.refundOrder(expandedID, {
@@ -245,18 +235,11 @@ export default function Orders() {
         settlement: 'cash',
       });
 
-      console.log('REFUND RESPONSE:', data);
-
       if (!data?.success || !data?.refund) {
         throw new Error(data?.message || 'Refund completed but no refund details were returned.');
       }
 
-      let message = `Refund processed: ${formatMoney(data.refund.refundAmount)}`;
-      if (data.refund.creditGenerated > 0) {
-        message += `\n${formatMoney(data.refund.creditGenerated)} was added to the customer's store credit.`;
-      }
-      toast.success(message);
-      setRefundForm({});
+      toast.success(`Cash back processed: ${formatMoney(data.refund.refundAmount)}`);
       setRefundReason('');
       await refreshDetail(expandedID);
     } catch (err) {
@@ -271,7 +254,14 @@ export default function Orders() {
       .map((p) => `<tr><td>${p.productID}</td><td>${p.quantity}</td><td>${formatMoney(p.amount)}</td><td>${p.discount}%</td></tr>`)
       .join('');
     const editRows = (order.editHistory || [])
-      .map((e) => `
+      .map((e) => {
+        const settlementLabel =
+          e.settlement === 'credit'
+            ? `Exchange — Store Credit: ${formatMoney(e.creditAmount || 0)}`
+            : e.settlement === 'cash'
+            ? `Cash Back: ${formatMoney(e.creditAmount || 0)}`
+            : '—';
+        return `
     <tr>
       <td>${e.productID}</td>
       <td>${e.originalQty} → ${e.newQty}</td>
@@ -279,9 +269,10 @@ export default function Orders() {
       <td>${e.editedBy}</td>
       <td>${new Date(e.editedAt).toLocaleString()}</td>
       <td>${e.reason}</td>
-      <td>Store Credit: ${formatMoney(e.creditAmount || 0)}</td>
+      <td>${settlementLabel}</td>
     </tr>
-  `)
+  `;
+      })
       .join('');
     const refundRows = (refunds || [])
       .map((r) => `<tr><td>${formatMoney(r.refundAmount)}</td><td>${r.processedBy}</td><td>${new Date(r.refundDate).toLocaleString()}</td><td>${r.reason || ''}</td></tr>`)
@@ -410,8 +401,8 @@ export default function Orders() {
                                         {detail.order.editHistory.map((e, i) => (
                                           <li key={i} className="border-b pb-1">
                                             {e.productID}: {e.originalQty} → {e.newQty} ({e.action}) by {e.editedBy} on {new Date(e.editedAt).toLocaleString()} — "{e.reason}"
-                                            {e.settlement === 'credit' && <> — {formatMoney(e.creditAmount)} added to store credit</>}
-                                            {e.settlement === 'cash' && <> — {formatMoney(e.creditAmount)} cash back</>}
+                                            {e.settlement === 'credit' && <> — Exchange: {formatMoney(e.creditAmount)} added to store credit</>}
+                                            {e.settlement === 'cash' && <> — Refund: {formatMoney(e.creditAmount)} cash back</>}
                                           </li>
                                         ))}
                                       </ul>
@@ -477,10 +468,13 @@ export default function Orders() {
                                       </div>
                                     )}
 
-                                    <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-white">
-                                      <h3 className="font-medium mb-2">
-                                        Edit a line item {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
+                                    <div className="border border-dashed border-teal-300 rounded-lg p-3 bg-white">
+                                      <h3 className="font-medium mb-1 text-teal-700">
+                                        Exchange — reduce a line item (Store Credit) {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
                                       </h3>
+                                      <p className="text-xs text-gray-500 mb-2">
+                                        Any value freed up is settled as store credit, never cash back.
+                                      </p>
                                       {editWindowOpen(detail.order) && (
                                         <form onSubmit={handleEditSubmit} className="space-y-2">
                                           <select
@@ -520,7 +514,7 @@ export default function Orders() {
 
                                     <div className="border border-dashed border-green-300 rounded-lg p-3 bg-white">
                                       <h3 className="font-medium mb-2 text-green-700">
-                                        Add a new item {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
+                                        Exchange — add a replacement item (Store Credit) {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
                                       </h3>
                                       {editWindowOpen(detail.order) && (
                                         <form onSubmit={handleAddSubmit} className="space-y-2">
@@ -559,28 +553,16 @@ export default function Orders() {
                                     </div>
 
                                     <div className="border border-dashed border-red-300 rounded-lg p-3 bg-white">
-                                      <h3 className="font-medium mb-2 text-red-700">Refund items</h3>
-                                      <form onSubmit={handleRefundSubmit} className="space-y-2">
+                                      <h3 className="font-medium mb-1 text-red-700">Refund Full Order (Cash Back)</h3>
+                                      <p className="text-xs text-gray-500 mb-2">
+                                        Refunds every item on this order for cash. For a partial swap, use Exchange above instead.
+                                      </p>
+                                      <ul className="text-xs text-gray-600 mb-2 space-y-0.5">
                                         {detail.order.products.map((p) => (
-                                          <label key={p.productID} className="flex items-center gap-2 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              checked={refundForm[p.productID] !== undefined}
-                                              onChange={() => toggleRefundItem(p.productID, p.quantity)}
-                                            />
-                                            {p.productID} (up to {p.quantity})
-                                            {refundForm[p.productID] !== undefined && (
-                                              <input
-                                                type="number"
-                                                min="1"
-                                                max={p.quantity}
-                                                value={refundForm[p.productID]}
-                                                onChange={(e) => setRefundForm({ ...refundForm, [p.productID]: e.target.value })}
-                                                className="border rounded px-1 py-0.5 w-16 ml-auto"
-                                              />
-                                            )}
-                                          </label>
+                                          <li key={p.productID}>{p.productID} × {p.quantity}</li>
                                         ))}
+                                      </ul>
+                                      <form onSubmit={handleRefundSubmit} className="space-y-2">
                                         <input
                                           type="text"
                                           placeholder="Reason (required)"
@@ -589,7 +571,7 @@ export default function Orders() {
                                           className="border rounded px-2 py-1 w-full text-sm"
                                         />
                                         <button type="submit" className="w-full bg-red-600 text-white rounded py-1.5 text-sm hover:bg-red-700">
-                                          Process Refund
+                                          Refund Full Order — Cash Back
                                         </button>
                                       </form>
                                     </div>

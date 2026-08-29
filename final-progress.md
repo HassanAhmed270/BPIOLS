@@ -113,8 +113,22 @@ merged. `offlineOrigin`/"Offline Sales" figure are schema-checked only,
 no live Mongo. `unverified` intentionally leaves a sale `pending` rather
 than `conflict` (by design) — flagging for awareness, not a defect.
 
-**2026-08-26 — Stage 14 complete.** Exchange process improvements.
+**2026-08-26 — Stage 14 complete (condensed).** Exchange process
+improvements. Confirmed pre-existing and untouched: store-credit-only
+on edit, the "Revised" receipt's full edit-history table. New:
+`applyLineAddition()` (`routes/orders.js`) adds a new line during an
+exchange via checkout's own FIFO/price logic, `editHistory.action`
+gains `'add'`; `POST /customer/create` (upsert-style) +
+`POST /api/order/:orderID/convert-customer` reattach a walk-in order to
+a real customer; `Orders.jsx` gained "Convert to customer" and "Add a
+new item" panels. Incidental: removed an unused `isValidDiscount`
+import in `routes/orders.js`. Verified: `npm test` 66/66, boot-tested,
+`frontend` build clean, `oxlint` 0 errors on all five touched files.
+Known/open: no live Mongo/browser — FIFO on an added line and the
+walk-in→customer credit landing are code-reviewed only; added lines
+never apply a discount (out of scope, not requested).
 
+<<<<<<< HEAD
 Confirmed in code before starting (`final.md`'s "Already working today"
 claims): store-credit-only on edit (`recomputeOrderTotals` in
 `routes/orders.js` unconditionally converts freed overpayment to
@@ -237,3 +251,40 @@ choice when more than one cost exists. `api.js` gained
   picker and the quantity cap works; restock a *different* product
   twice at the *same* cost, confirm no picker appears and behavior is
   unchanged from Stage 9.
+=======
+**2026-08-29 — Stage 16 complete.** Raised directly by Hassan (not
+pre-staged in `final.md` beforehand — added retroactively per the
+project's own "newly raised items get promoted to a numbered stage"
+convention), frontend-only, three parts. **16a:** `Suppliers.jsx`'s
+purchase-history `Balance` column (color+sign plus a small "credit
+used" note folded in underneath) split into a `Status` column (`Due Rs
+X` / `Credit +Rs X` / `Settled`) and a separate `Credit Used` column —
+same `balanceDue`/`creditGenerated`/`creditApplied` fields, relabeled/
+split only, no calculation touched. **16b:** `Orders.jsx`'s "Refund
+items" (individual item checkboxes + editable quantities, duplicating
+the edit form above it) replaced with a single **Refund Full Order
+(Cash Back)** action — full order, all lines at full quantity,
+`settlement: 'cash'` (unchanged, already hardcoded). "Edit a line item"
+→ **Exchange — reduce a line item (Store Credit)**; "Add a new item" →
+**Exchange — add a replacement item (Store Credit)** — labels only,
+both already settle credit-only (backend already ignores any
+`settlement` sent on `/api/order/:orderID/edit`). Printed "Revised
+Receipt" edit-history rows previously always said `Store Credit: Rs X`
+regardless of actual settlement — now conditionally labels `Exchange —
+Store Credit: Rs X` / `Cash Back: Rs X` / `—`, matching the on-screen
+Edit History. **16c:** `Billing.jsx`'s "🧾 Special Bill" button, preview
+modal, `showSpecialPreview` state, and `printSpecialReceiptFor` removed
+entirely; `handleGenerateBill` no longer takes a `special` param.
+`customerDirectory` kept (still backs Customer Balance). Incidental:
+removed a leftover debug `console.log('REFUND RESPONSE:', data)` in
+`Orders.jsx`'s refund handler. **Affected files:** `Suppliers.jsx`,
+`Orders.jsx`, `Billing.jsx` — no backend routes touched, confirmed
+first against `routes/suppliers.js`/`routes/orders.js` that no
+calculation needed to change. Verified: `frontend` build clean, `oxlint`
+0 errors on all three files, boot-tested (`GET /api/orders`, `GET
+/api/products`, `POST /supplier/purchase`, `POST /api/order/:id/refund`,
+`POST /api/order/:id/edit` all 401 with no token), root `npm test`
+66/66, `frontend npm test` 10/10 (both unaffected, no backend/offline
+files touched). Known/open: no live browser — the new Supplier columns,
+full-refund-only flow, and Special Bill's removal are code-reviewed
+only; recommend a manual check of each once merged.

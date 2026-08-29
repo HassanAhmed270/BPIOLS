@@ -302,3 +302,4 @@ above, to bring this file back under ~250 lines. No facts were changed
 or removed — only shortened. If the full original wording for any prior
 stage is needed again, it exists in this file's git history
 (`production-progress.md` at the commit just before this compaction).
+

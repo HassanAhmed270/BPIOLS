@@ -307,7 +307,7 @@ export default function Suppliers() {
                                 {s.purchases.length === 0 ? (
                                   <p className="text-xs text-gray-400">No purchases recorded yet.</p>
                                 ) : (
-                                  <table className="w-full min-w-[560px] text-xs bg-white border-collapse">
+                                  <table className="w-full min-w-[640px] text-xs bg-white border-collapse">
                                     <thead className="bg-gray-100">
                                       <tr>
                                         <th className="p-1 text-left border">Purchase ID</th>
@@ -315,20 +315,21 @@ export default function Suppliers() {
                                         <th className="p-1 text-left border">Items</th>
                                         <th className="p-1 text-right border">Total</th>
                                         <th className="p-1 text-right border">Paid</th>
-                                        <th className="p-1 text-right border">Balance</th>
+                                        <th className="p-1 text-right border">Status</th>
+                                        <th className="p-1 text-right border">Credit Used</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {s.purchases.map((p) => {
-                                        // Balance is the single source of truth for how this
-                                        // purchase settled, color-coded three ways: still owe
-                                        // something (red), this purchase's own payment created
-                                        // new credit beyond what it owed (green), or it settled
-                                        // exactly with nothing left over and nothing generated
-                                        // (plain). creditApplied — existing credit consumed —
-                                        // gets a small note underneath either way, since it's
-                                        // useful context but doesn't change which of the three
-                                        // states this row is in.
+                                        // Status is one of exactly three states for this
+                                        // purchase: Due (still owed, red), Credit (this
+                                        // purchase's own payment generated new supplier
+                                        // credit beyond what it owed, green), or Settled
+                                        // (nothing owed, nothing generated, plain). Credit
+                                        // Used — existing credit consumed toward this
+                                        // purchase — is a separate column, not text folded
+                                        // into the status cell, since the two are unrelated
+                                        // facts about the same purchase.
                                         const stillOwes = p.balanceDue > 0;
                                         const madeCredit = !stillOwes && p.creditGenerated > 0;
                                         return (
@@ -340,19 +341,17 @@ export default function Suppliers() {
                                             <td className="p-1 border text-right">{formatMoney(p.amountPaid)}</td>
                                             <td
                                               className={`p-1 border text-right ${
-                                                stillOwes ? 'text-red-700 font-semibold' : madeCredit ? 'text-green-700 font-semibold' : ''
+                                                stillOwes ? 'text-red-700 font-semibold' : madeCredit ? 'text-green-700 font-semibold' : 'text-gray-500'
                                               }`}
                                             >
                                               {stillOwes
-                                                ? formatMoney(p.balanceDue)
+                                                ? `Due ${formatMoney(p.balanceDue)}`
                                                 : madeCredit
-                                                ? `+${formatMoney(p.creditGenerated)}`
-                                                : formatMoney(0)}
-                                              {p.creditApplied > 0 && (
-                                                <div className="text-gray-500 font-normal text-[10px] leading-tight">
-                                                  {formatMoney(p.creditApplied)} credit used
-                                                </div>
-                                              )}
+                                                ? `Credit +${formatMoney(p.creditGenerated)}`
+                                                : 'Settled'}
+                                            </td>
+                                            <td className="p-1 border text-right text-gray-600">
+                                              {p.creditApplied > 0 ? formatMoney(p.creditApplied) : '—'}
                                             </td>
                                           </tr>
                                         );
