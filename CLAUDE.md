@@ -57,7 +57,6 @@ Check for an existing helper before creating new logic.
   `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
   checkout/offline sync always use plain `consumeFIFO`.
 - Sequential ID generation: `models/Counter.js` — a generic
-<<<<<<< HEAD
   `{ _id, seq }` doc, incremented atomically (`findOneAndUpdate($inc)`).
   `routes/products.js`'s `nextProductId()` is the first consumer.
 - Frontend API calls: `frontend/src/lib/api.js`.
@@ -76,7 +75,7 @@ Check for an existing helper before creating new logic.
   `ConfirmProvider` (mounted in `App.jsx`) and `useConfirm()` — `if
   (await confirm('Delete this?')) { ... }`. Zero `alert()`/`confirm()`
   remain in `pages/`.
->>>>>>> stage16
+
 
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
@@ -196,7 +195,7 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
   `Refund.settlement`/`creditGenerated` carry this at each level.
   `recomputeOrderTotals` returns the freed settlement rather than letting
-<<<<<<< HEAD
+
   it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
   Stock `returned_to_supplier` reason adjusts *supplier* credit
   instead — keep the two paths separate.
@@ -240,7 +239,7 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `Credit Used` column — don't fold the two into one cell.
 - User management: `routes/users.js` — admin create/delete/
   reset-password (`/api/users*`) + self-service password change
->>>>>>> stage16
+
   (`/api/users/me/password`); every password write refreshes
   `passwordChangedAt`. Deleting your own account or the last admin is
   blocked. `Users.jsx` at `/workers` (admin-only) is the only UI surface.

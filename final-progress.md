@@ -128,7 +128,7 @@ Known/open: no live Mongo/browser — FIFO on an added line and the
 walk-in→customer credit landing are code-reviewed only; added lines
 never apply a discount (out of scope, not requested).
 
-<<<<<<< HEAD
+
 Confirmed in code before starting (`final.md`'s "Already working today"
 claims): store-credit-only on edit (`recomputeOrderTotals` in
 `routes/orders.js` unconditionally converts freed overpayment to
