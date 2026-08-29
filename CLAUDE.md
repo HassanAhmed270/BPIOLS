@@ -150,8 +150,7 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   2-column grid, Supplier Add-mode only. Billing's cart preview is
   stacked receipt-lines with a "Customer Balance" line
   (`totalBalanceDue - creditBalance`, pre-sale, Stage 11). Special Bill
-  was removed (Stage 16) — `printReceiptFor` is the only receipt path.
-- Audit records go through `logAudit()`; `AuditLog.jsx` shows a
+  was removed (Stage 16) — `printReceiptFor` is the only receipt path.- Audit records go through `logAudit()`; `AuditLog.jsx` shows a
   flattened table (`lib/flattenObject.js`, Stage 3). Every export route
   supports `?format=pdf` (`lib/pdf.js`'s `sendTablePDF()`; Stage 9b added
   `/api/export/losses`), driven by `Reports.jsx`'s `EXPORTS` array.
@@ -180,52 +179,51 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   /api/order/:orderID/edit` branches on `action` — no `action` is the
   original reduction path (`applyLineReduction`); `action: 'add'` is
   `applyLineAddition`, a new line at current selling price via
-  `consumeFIFO`/`disableIfDepleted`, no discount
-  (`editHistory.action`: `'edit'|'refund'|'add'`). `POST
-  /customer/create` (upsert-style) + `POST
-  /api/order/:orderID/convert-customer` reattach a `WALKIN_CUSTOMER`-
-  sentinel order to a newly created customer — frontend calls both in
-  sequence, not combined.
+  `consumeFIFO`/`disableIfDepleted`, no discount (`editHistory.action`:
+  `'edit'|'refund'|'add'`). `POST /customer/create` (upsert-style) +
+  `POST /api/order/:orderID/convert-customer` reattach a
+  `WALKIN_CUSTOMER`-sentinel order to a newly created customer.
 - **Refund = Cash Back, Exchange = Store Credit** (Stage 16, UI only,
   backend already enforced it). `Orders.jsx`'s Refund box always refunds
   every line at full quantity; the two "Exchange" boxes are the only
   path touching store credit. `Suppliers.jsx`'s purchase-history rows
   use a `Status` column (`Due`/`Credit`/`Settled`) + `Credit Used`.
 - User management: `routes/users.js` covers admin create/delete/
-  reset-password (`/api/users*`) + self-service password change
-  (refreshes `passwordChangedAt`). Deleting your own account or the
-  last admin is blocked. `Users.jsx` at `/workers` (admin-only).
+  reset-password + self-service password change (refreshes
+  `passwordChangedAt`). Deleting your own account or the last admin is
+  blocked. `Users.jsx` at `/workers` (admin-only).
 - `POST /product/undo` validates `productId` with `isValidProductId()`.
   `loginLimiter`: `max: 20`/15min, `skipSuccessfulRequests: true`.
-  `getDashboardSummary` derives `refundedOrders`/`refundedAmount` from
-  one `Refund.aggregate`.
+  `getDashboardSummary` derives `refundedOrders`/`refundedAmount`.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
   apply customer credit. Sets `Order.offlineOrigin: true` at creation
   (Stage 13, sole writer); `getDashboardSummary` counts it as
-  `offlineOrders` on `Dashboard.jsx`. Stage 13 also added a 60s debounced
-  reconnect delay (`RECONNECT_DELAY_MS`), an auto-sync-only pub-sub
-  (`subscribeAutoSync`/`isAutoSyncing`) driving `SyncOverlay.jsx` (manual
-  "Sync Now" bypasses it), and `verifyOrderExists()` before trusting a
-  "synced" result — `conflict` only on genuine not-found, else `pending`.
+  `offlineOrders`. Stage 13 also added a 60s debounced reconnect delay
+  (`RECONNECT_DELAY_MS`), an auto-sync-only pub-sub (`subscribeAutoSync`/
+  `isAutoSyncing`) driving `SyncOverlay.jsx`, and `verifyOrderExists()`
+  before trusting a "synced" result — `conflict` only on genuine
+  not-found, else `pending`.
 - Draft persistence has two layers in `Billing.jsx` — don't conflate
   them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
   silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
   same DB as `sales`, `DB_VERSION` 2) writes on every cart change, not
   debounced. Local draft checked first on mount; both cleared via
   `resetBill()`.
-- **App-wide offline signal** (Stage 17): `lib/networkStatus.js` — a
-  pub-sub (mirrors `subscribeAutoSync` above) that `lib/api.js`'s
-  `request()`/`downloadExport()` drive: `markOffline()` on a raw
-  `fetch()` failure, `markOnline()` on any response at all. That
-  failure's `.message` gets relabeled friendly by mutating the *same*
-  `TypeError` object, not a new `Error` — `isNetworkError()`'s `err
-  instanceof TypeError` check must keep matching it, since Billing's
-  offline-queue fallback depends on it. `NetworkStatusBanner.jsx`
-  (mounted next to `SyncOverlay`) shows a banner while `isOffline()` is
-  true — independent of `navigator.onLine`, so it also fires when only
-  the backend, not the network adapter, is down.
+- **App-wide offline signal** (Stage 17, corrected same day): `lib/
+  networkStatus.js` — a pub-sub (mirrors `subscribeAutoSync`) that
+  `lib/api.js`'s `request()`/`downloadExport()` drive: `markOffline()` +
+  throw a `TypeError` on either a raw `fetch()` failure *or* a non-`ok`,
+  non-JSON response (Vite's dev proxy answers a killed backend with a
+  resolved 502/503/504, not a thrown error — every genuine app response
+  is JSON via `asyncHandler`/`AppError`, so non-JSON+non-ok reliably
+  means an infra gateway failure, not an app error); `markOnline()`
+  otherwise. Keep throwing the *same* `TypeError` object rather than a
+  new `Error` — `isNetworkError()`'s `instanceof TypeError` check must
+  keep matching it, since Billing's offline-queue fallback depends on
+  it. `NetworkStatusBanner.jsx` (next to `SyncOverlay`) shows a banner
+  while `isOffline()` is true — independent of `navigator.onLine`.
 - **Thermal printing, Web USB** (Stage 18): `frontend/src/lib/
   thermalPrint.js` — `pairThermalPrinter()` needs a real click
   (`navigator.usb.requestDevice`, Billing's header "Connect Thermal

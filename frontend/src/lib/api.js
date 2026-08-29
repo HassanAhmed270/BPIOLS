@@ -39,6 +39,22 @@ async function request(path, options = {}) {
     }
     throw err;
   }
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+
+  if (!res.ok && !isJson) {
+    // Stage 17 correction — a non-JSON error response isn't a genuine app
+    // error (every real route response, success or failure, goes through
+    // asyncHandler/AppError and is always JSON). It's an infra-level
+    // gateway failure instead: in dev, Vite's own proxy answers with a
+    // resolved 502/503/504 (not a thrown fetch() error) the moment the
+    // backend process isn't listening, so the raw-fetch-throw branch
+    // above never sees it and the offline-queue fallback never engaged.
+    // Treat it exactly the same way: mark offline and throw a genuine
+    // TypeError so isNetworkError() (`err instanceof TypeError`) matches.
+    markOffline();
+    throw new TypeError("Can't reach the server — check your connection.");
+  }
   markOnline();
 
   if (res.status === 401) {
@@ -48,8 +64,7 @@ async function request(path, options = {}) {
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
   }
 
-  const contentType = res.headers.get('content-type') || '';
-  const body = contentType.includes('application/json') ? await res.json() : await res.text();
+  const body = isJson ? await res.json() : await res.text();
 
   if (!res.ok && typeof body === 'object' && body?.message) {
     throw new Error(body.message);
@@ -139,7 +154,17 @@ export const api = {
     }
     if (!res.ok) {
       const contentType = res.headers.get('content-type') || '';
-      const body = contentType.includes('application/json') ? await res.json() : await res.text();
+      const isJson = contentType.includes('application/json');
+      if (!isJson) {
+        // Stage 17 correction — same gateway-failure case as request():
+        // a non-JSON error here means Vite's dev proxy (or an equivalent
+        // reverse proxy) answered on the backend's behalf, not the app.
+        // Re-mark offline even though markOnline() ran above — reaching
+        // Vite isn't the same as reaching the real backend.
+        markOffline();
+        throw new TypeError("Can't reach the server — check your connection.");
+      }
+      const body = await res.json();
       throw new Error(body?.message || 'Export failed.');
     }
     const blob = await res.blob();

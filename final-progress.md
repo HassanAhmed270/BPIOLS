@@ -186,61 +186,54 @@ code-reviewed only; recommend pairing a real printer and testing both
 the print and no-printer-fallback paths once merged. Exact ESC/POS
 command compatibility may need tuning per printer model.
 
-**2026-08-29 — Stage 19 complete.** Overpayment prompt: change back vs.
-customer balance. Raised directly by Hassan, same session as Stage 18.
-Two open questions confirmed via chat before starting: a walk-in sale
-always gets change, no prompt (no account to credit); an offline sale
-that overpays and syncs later always defaults to change (matches
-today's behavior — cashier isn't present at sync time). Confirmed the
-existing behavior first: `routes/billing.js`'s draft-commit handler
-already deliberately capped `amountPaid` at `netOwed`, discarding any
-excess as unpersisted "change" — an explicit prior decision, not a bug.
-New: `models/PendingBill.js` gets `overpaymentChoice` (`'change'|
-'balance'`, default `'change'`), carried in the draft the same
-tamper-resistant way as `paidInput`/`paymentMethod` rather than a
-trusted request param. `POST /billing/draft` accepts/validates it with
-the same quiet-default-on-bad-value pattern as `paymentMethod`. The
-draft-commit handler (`POST /billing/orderDetails`) computes
-`overpaidAmount = paidInput - netOwed` and, only when the sale isn't
-walk-in, the amount is positive, and `draft.overpaymentChoice ===
-'balance'`, adds it onto the existing `newCreditBalance` write inside
-the same transaction that already handles credit auto-apply — so it's
-one write to `Customer.creditBalance`, not two. `Billing.jsx`: new
-`chooseOverpaymentSettlement(amount)` — a `sonner` toast with `action`
-("Add to Balance") and `cancel` ("Give Change") buttons, resolving a
-Promise; only shown in `handleGenerateBill` when `paidNum > total`, the
-customer isn't the `WALKIN_CUSTOMER` sentinel, and the app doesn't
-already look offline (`!offlineSyncEnabled || isOnline`) — the exact
-default-to-change confirmed above. The choice is threaded through
-`saveDraftNow()`'s new 4th param into the draft before `api.saveOrder()`,
-and into `printReceiptFor()`'s new 4th param, which now labels the
-settlement line "Added to Customer Balance" instead of "Change" only
-when that's genuinely what happened. The offline-queue fallback call
-site always passes `'change'` explicitly regardless of what was chosen,
-since offline sync never applies balance credit — keeps the printed
-slip honest. **Incidental (in the exact functions/lines already being
-touched):** several pre-existing comments in `routes/billing.js` and
-`Billing.jsx` were labeled "Stage 19" from an old, unrelated numbering
-(the walk-in-customer sentinel) and now directly collided with this
-stage's own "Stage 19" comments in the same functions — relabeled those
-specific lines to drop the stale stage number rather than leave two
-different features both claiming to be "Stage 19" in the same file; no
-other comment-stripping pass was done. **Affected files:** `models/
-PendingBill.js`, `routes/billing.js`, `frontend/src/pages/Billing.jsx`.
-Verified: `frontend` build clean, `oxlint` 0 errors on all three touched
-files, `frontend npm test` 10/10, root `npm test` 66/66, backend
-boot-tested (`node main.js` with a real `.env`, no live Mongo in this
-sandbox) — `POST /billing/draft` and `POST /billing/orderDetails` both
-401 with no token, `POST /billing/draft` with a well-formed body
-including `overpaymentChoice: "balance"` and a garbage token also 401
-(parses fine, rejected by auth as expected, confirming the new field
-doesn't break request parsing/validation ordering). Known/open: no live
-browser and no live MongoDB replica set in this sandbox — the toast
-prompt's actual appearance/button behavior, the transaction correctly
-crediting `creditBalance`, and the printed receipt's two labels are
-code-reviewed only; recommend once merged: ring up a real customer sale,
-overpay it, confirm the toast appears with both choices, pick "Add to
-Balance" and confirm that customer's balance increased by exactly the
-overpaid amount and the receipt says so; repeat choosing "Give Change"
-and confirm nothing changed on the account; confirm a walk-in overpay
-never shows the prompt.
+**Stage 19 complete (2026-08-29, condensed).** Overpayment prompt:
+change back vs. customer balance. Confirmed via chat first: walk-in
+sales always get change (no account to credit); an offline sale that
+overpays and syncs later always defaults to change too. New:
+`PendingBill.overpaymentChoice` (`'change'|'balance'`, default
+`'change'`), carried tamper-resistant in the draft like `paidInput`.
+The draft-commit handler adds the overpaid amount onto
+`Customer.creditBalance` in the same transaction as credit auto-apply
+when the choice is `'balance'`, sale isn't walk-in, and overpaid > 0.
+`Billing.jsx`: new toast-based `chooseOverpaymentSettlement()` prompt
+(shown only when overpaying, not walk-in, not already offline); choice
+threaded into the draft and into the printed receipt's settlement
+label. Offline-queue fallback always defaults to `'change'` regardless.
+Incidental: relabeled a few pre-existing comments that collided with
+this stage's own "Stage 19" tag in the same functions (an old, unrelated
+numbering). Verified: build/`oxlint` clean on all three touched files,
+`frontend npm test` 10/10, `npm test` 66/66, boot-tested (`POST
+/billing/draft`/`orderDetails` 401 with no token, including a
+well-formed body with `overpaymentChoice: "balance"`). Known/open: no
+live browser/Mongo — the toast, credit transaction, and receipt label
+are code-reviewed only; recommend a real overpay-and-choose test once
+merged, both choices, plus confirming a walk-in overpay never prompts.
+
+**2026-08-29 — Stage 17 correction.** The original Stage 17 fix only
+caught a raw `fetch()` *throw*. Reproduced live (backend on :3000
+killed, Vite dev server on :5173 left running): Vite's own dev proxy
+answers with a resolved **HTTP 502**, not a connection failure — so
+`fetch()` never throws, `isNetworkError()` never matches, and the
+offline-queue fallback (the actual "survive properly" behavior asked
+for) silently never engaged. Worse, the pre-existing `!res.ok &&
+typeof body === 'object' && body?.message` check silently swallowed any
+non-JSON error response (502's body is plain text) and returned it as
+if it were a successful result. Fixed in `lib/api.js`'s
+`request()`/`downloadExport()`: a non-`ok`, non-JSON response is now
+treated exactly like a raw `fetch()` throw (`markOffline()` + a thrown
+`TypeError`) — every genuine app response, success or error, already
+goes through `asyncHandler`/`AppError` and is always JSON, so "non-JSON
+error" reliably means an infra-level gateway failure (dev-proxy
+502/503/504, or an equivalent reverse-proxy failure in real production),
+not an app error. **Verified live, not just code-reviewed:** started
+both servers, confirmed a normal 401 through the proxy, killed the
+backend process, confirmed the proxy actually returns 502 with a
+`text/plain` body, then confirmed in a throwaway script that the fixed
+logic correctly classifies that exact response as a `TypeError` (so
+`isNetworkError()` matches). `frontend` build clean, `oxlint` 0 errors
+on `lib/api.js`, `frontend npm test` 10/10, root `npm test` 66/66 (no
+backend files touched). Known/open: the live repro covered the raw
+HTTP layer, not clicking through the actual React UI in a browser —
+recommend once merged: repeat with the real app open, confirm Billing's
+offline queue now actually captures a sale attempted while the backend
+is down (not just the network adapter), and the new banner appears.

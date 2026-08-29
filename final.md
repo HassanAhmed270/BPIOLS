@@ -786,6 +786,26 @@ succeeds again; an already-logged-in session is not force-logged-out;
 Billing's offline queue/sync behavior is unchanged and still verified by
 its own existing tests.
 
+**Correction, 2026-08-29 (same day):** the fix above only caught a raw
+`fetch()` *throw*. Reproduced live (backend on :3000 killed, Vite dev
+server on :5173 left running): Vite's own dev proxy answers with a
+resolved **HTTP 502**, not a connection-level failure — so `fetch()`
+never throws at all, `isNetworkError()` never matches, and the entire
+offline-queue fallback (the actual "survive properly" behavior Hassan
+asked for) silently never engaged. Worse, the pre-existing code's
+`!res.ok && typeof body === 'object' && body?.message` check silently
+swallowed *any* non-JSON error response (502's body is plain text) and
+returned it as if it were a successful JSON result. Fixed in
+`request()`/`downloadExport()`: a non-`ok`, non-JSON response is now
+treated exactly like a raw `fetch()` throw — `markOffline()` plus a
+thrown `TypeError` — since every genuine app response (success or
+error) already goes through `asyncHandler`/`AppError` and is always
+JSON, so "non-JSON error" reliably means an infra-level gateway failure
+(a dev-proxy 502/503/504, or an equivalent reverse-proxy failure in a
+real production deployment), not an app error. Verified live against
+the actual 502 from a killed backend (not just code review) — see
+`final-progress.md`.
+
 ---
 
 ## Stage 18 — Thermal receipt printing, with manual-print fallback
