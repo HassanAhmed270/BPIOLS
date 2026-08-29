@@ -17,12 +17,12 @@ const logger = require('../lib/logger');
 
 const router = express.Router();
 
-// Stage 19: the sentinel customerName for a walk-in/unknown-customer sale.
+// Walk-in sentinel: the customerName for a walk-in/unknown-customer sale.
 // Chosen to double as the human-readable label everywhere customerName is
 // displayed (receipts, Orders list, audit log) — it's a real string stored
 // on Order.customerName, not a code, so nothing downstream needs to know
 // about it specially except the two spots below that skip the Customer
-// collection for it. See CLAUDE.md Stage 19.
+// collection for it. See CLAUDE.md's "Walk-in → customer conversion" note.
 const WALKIN_CUSTOMER = 'Walk-in / Unknown';
 
 
@@ -123,7 +123,7 @@ router.get('/billing/draft', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 router.post('/billing/draft', requireAuth, asyncHandler(async (req, res) => {
-  const { billID, customerName, items, paidInput, paymentMethod } = req.body;
+  const { billID, customerName, items, paidInput, paymentMethod, overpaymentChoice } = req.body;
 
   if (billID && !isValidOrderId(billID)) {
     return res.status(400).json({ success: false, message: 'Invalid bill ID.' });
@@ -131,6 +131,10 @@ router.post('/billing/draft', requireAuth, asyncHandler(async (req, res) => {
 
   const cleanPaidInput = Number.isFinite(Number(paidInput)) && Number(paidInput) >= 0 ? roundMoney(paidInput) : 0;
   const cleanMethod = ['cash', 'card', 'other'].includes(paymentMethod) ? paymentMethod : 'cash';
+  // Stage 19: same quiet-default pattern as cleanMethod above — this
+  // autosaves every few seconds, so an unexpected value falls back to
+  // 'change' (today's existing behavior) rather than rejecting the save.
+  const cleanOverpaymentChoice = ['change', 'balance'].includes(overpaymentChoice) ? overpaymentChoice : 'change';
 
   // Quietly drop malformed lines rather than rejecting the whole autosave —
   // this runs silently every few seconds, so a hard 400 here would be
@@ -167,6 +171,7 @@ router.post('/billing/draft', requireAuth, asyncHandler(async (req, res) => {
       items: cleanItems,
       paidInput: cleanPaidInput,
       paymentMethod: cleanMethod,
+      overpaymentChoice: cleanOverpaymentChoice,
       status: 'active',
       updatedAt: new Date(),
     },
@@ -215,8 +220,8 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
     return res.status(400).json({ success: false, message: 'Invalid customer selected.' });
   }
 
-  // Stage 19: a walk-in sale intentionally has no backing Customer record
-  // — it's recorded against the sentinel name only, so there's nothing to
+  // Walk-in sale: intentionally has no backing Customer record — it's
+  // recorded against the sentinel name only, so there's nothing to
   // look up or require here.
   const isWalkIn = draft.customerName === WALKIN_CUSTOMER;
   const customer = isWalkIn ? null : await Customer.findOne({ customerName: draft.customerName });
@@ -341,6 +346,18 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
       const paymentStatus = amountPaid <= 0 ? (balanceDue > 0 ? 'unpaid' : 'paid') : balanceDue > 0 ? 'partial' : 'paid';
       const payments = amountPaid > 0 ? [{ amount: amountPaid, date: new Date(), method: draft.paymentMethod || 'cash' }] : [];
 
+      // Stage 19: the amount paid beyond netOwed — same "change" the
+      // comment above already described, except now the cashier could
+      // have chosen to credit it to the customer's balance instead. A
+      // walk-in sale has no Customer document to credit, so this only
+      // ever applies alongside the credit-auto-apply block above.
+      // Anything except an explicit 'balance' choice keeps today's
+      // behavior exactly: the excess is simply never persisted anywhere.
+      const overpaidAmount = roundMoney(Math.max(0, (draft.paidInput || 0) - netOwed));
+      if (!isWalkIn && overpaidAmount > 0 && draft.overpaymentChoice === 'balance') {
+        newCreditBalance = roundMoney(newCreditBalance + overpaidAmount);
+      }
+
       const created = await Order.create(
         [
           {
@@ -360,7 +377,7 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
       );
       order = created[0];
 
-      // Stage 19: walk-in sales don't get a customer order-history push —
+      // Walk-in sales don't get a customer order-history push —
       // there's no Customer document to push it onto, and creating one
       // just for this would defeat the point (no unnecessary customer/
       // credit record for an untracked sale).

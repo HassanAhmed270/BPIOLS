@@ -4,8 +4,7 @@ The `production.md` phase (Stage 1–8) is complete and merged. This repo
 is now in a separate **final-fixes phase**, defined by `final.md`. The
 app remains feature-complete; current work is further correctness/UX/
 workflow fixes identified after production-hardening closed. Stages
-1–18 of `final.md` are complete as of this update. Stage 19 is scoped,
-not started.
+1–19 of `final.md` are complete as of this update.
 
 ## Document authority
 
@@ -43,24 +42,23 @@ not started.
 Check for an existing helper before creating new logic.
 - Money: `lib/money.js` → `roundMoney()`; frontend mirror at
   `frontend/src/lib/money.js` → `roundMoney()`/`formatMoney()` (PKR,
-  `Rs 1,234.50`, comma-grouped, `-Rs X.XX` for negatives).
-- Prices: `lib/pricing.js` (`getLatestSellingPrice`/`getLatestBuyingPrice`).
-- Validation: `lib/validators.js`. Pagination/sorting: `lib/query.js`.
-- Errors: `lib/errors.js` → `AppError` + `asyncHandler`.
-- Audit logging: `lib/auditLog.js` → `logAudit()`.
+  `Rs 1,234.50`, comma-grouped, `-Rs X.XX` for negatives). Prices:
+  `lib/pricing.js` (`getLatestSellingPrice`/`getLatestBuyingPrice`).
+  Validation: `lib/validators.js`. Pagination/sorting: `lib/query.js`.
+- Errors: `lib/errors.js` → `AppError` + `asyncHandler`. Audit logging:
+  `lib/auditLog.js` → `logAudit()`.
 - FIFO costing: `lib/costing.js` (`createBatch`, `consumeFIFO`,
   `consumeSpecificBatch`, `listRemainingBatches`, `restoreConsumption`,
   `generateUniquePurchaseId`), `models/StockBatch.js`. Deduct Stock uses
   `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
   checkout/offline sync always use plain `consumeFIFO`.
-- Sequential IDs: `models/Counter.js` (`{_id, seq}`, atomic increment);
-  `routes/products.js`'s `nextProductId()` is the first consumer.
+- Sequential IDs: `models/Counter.js` (`{_id, seq}`, atomic); first
+  consumer is `routes/products.js`'s `nextProductId()`.
 - Frontend API calls: `frontend/src/lib/api.js`.
 - Toasts/confirms (Stage 5/6): `sonner`'s `<Toaster>` mounted in
-  `App.jsx`, use `toast()`/`.success()`/`.error()`;
-  `ConfirmDialog.jsx` exports `ConfirmProvider` + `useConfirm()` —
-  `if (await confirm('Delete this?')) { ... }`. No raw `alert()`/
-  `confirm()` remain in `pages/`.
+  `App.jsx`, use `toast()`/`.success()`/`.error()`; `ConfirmDialog.jsx`
+  exports `ConfirmProvider` + `useConfirm()` — `if (await confirm('Delete
+  this?')) { ... }`. No raw `alert()`/`confirm()` remain in `pages/`.
 When inside an existing MongoDB transaction, pass its session to helpers
 that support sessions.
 
@@ -101,11 +99,11 @@ BPIOLS is a single-shop MERN POS/billing system for one desktop.
   `orderDetails` checkout), `suppliers.js` (incl. `supplier/purchase`),
   `orders.js` (incl. edit/refund, `recomputeOrderTotals`/
   `applyLineReduction`, `GET /dashboard/load`, `GET /api/orders/:id`),
-  `audit.js`, `users.js` (`/api/users*` admin mgmt + self-service
-  `/api/users/me/password`). Each mounts at `app.use('/', ...)`, keeping
-  original full paths. `main.js` only does app setup, DB connection,
-  middleware, route mounting, static frontend serving, the error
-  handler, and the draft-sweep interval.
+  `audit.js`, `users.js` (`/api/users*` + self-service
+  `/api/users/me/password`). Each mounts at `app.use('/', ...)`,
+  keeping original full paths. `main.js` only does app setup, DB
+  connection, middleware, route mounting, static frontend serving, the
+  error handler, and the draft-sweep interval.
 - Frontend: React + Vite + Tailwind under `frontend/`. Pages: `Billing.jsx`,
   `Products.jsx`, `Customers.jsx`, `Suppliers.jsx`, `Orders.jsx`,
   `Reports.jsx`, `Dashboard.jsx`, `AuditLog.jsx`, `Users.jsx`, `Login.jsx`.
@@ -127,8 +125,8 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 `PendingBill`, `OfflineSale`, `AuditLog`, `StockBatch`, `User`,
 `Counter` (Stage 2), `Loss` (Stage 9). Invariants below:
 - Product/order IDs use `#0000`-style identifiers, distinct from Mongo
-  `_id`. Add Product generates `#000N` via `nextProductId()` (deleted
-  IDs never reissued).
+  `_id`. Add Product generates `#000N` via `nextProductId()` (deleted IDs
+  never reissued).
 - Product prices are history arrays; read them through `lib/pricing.js`.
   Stock availability accounts for `reserved`. Checkout uses persisted
   `PendingBill` data and server-side verification. Walk-in sales use the
@@ -145,9 +143,9 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `creditBalance` (no `Loss`), every other reason writes one `Loss` doc.
 - **Zero-stock auto-disable/hard delete** (Stage 9a/9c):
   `disableIfDepleted()` (`lib/costing.js`) sets `Product.disabled` true
-  at `quantity` 0 (checkout, offline sync, Deduct Stock; only Add Stock
+  at `quantity` 0 (checkout/offline sync/Deduct Stock; only Add Stock
   clears it) — stays visible, greyed out, won't reserve. `DELETE
-  /product/:productID` requires `{reason, note}`, 400s if `quantity > 0`.
+  /product/:productID` needs `{reason, note}`, 400s if `quantity > 0`.
 - **UI polish** (Stage 10): Products form uses blue=Add/yellow=Update,
   2-column grid, Supplier Add-mode only. Billing's cart preview is
   stacked receipt-lines with a "Customer Balance" line
@@ -173,7 +171,11 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `recomputeOrderTotals` returns the freed settlement rather than letting
   it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
   Stock `returned_to_supplier` reason adjusts *supplier* credit
-  instead — keep the two paths separate.
+  instead — keep the two paths separate. **Overpayment→balance**
+  (Stage 19): `PendingBill.overpaymentChoice` (`'change'|'balance'`,
+  default `'change'`) — `POST /billing/orderDetails` only credits the
+  excess onto `newCreditBalance` when non-walk-in and explicitly
+  `'balance'`; offline sync never applies it (always change there).
 - **Order edits & walk-in conversion** (Stage 14): `POST
   /api/order/:orderID/edit` branches on `action` — no `action` is the
   original reduction path (`applyLineReduction`); `action: 'add'` is
@@ -191,13 +193,12 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   use a `Status` column (`Due`/`Credit`/`Settled`) + `Credit Used`.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password (`/api/users*`) + self-service password change
-  (`/api/users/me/password`; every write refreshes `passwordChangedAt`).
-  Deleting your own account or the last admin is blocked. `Users.jsx`
-  at `/workers` (admin-only) is the only UI surface.
+  (refreshes `passwordChangedAt`). Deleting your own account or the
+  last admin is blocked. `Users.jsx` at `/workers` (admin-only).
 - `POST /product/undo` validates `productId` with `isValidProductId()`.
-  `loginLimiter` (`middleware/rateLimit.js`): `max: 20`/15min,
-  `skipSuccessfulRequests: true`. `getDashboardSummary` derives
-  `refundedOrders`/`refundedAmount` from one `Refund.aggregate`.
+  `loginLimiter`: `max: 20`/15min, `skipSuccessfulRequests: true`.
+  `getDashboardSummary` derives `refundedOrders`/`refundedAmount` from
+  one `Refund.aggregate`.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
@@ -241,7 +242,7 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 feature-flagged modules. Other `/api`, `/billing`, `/product`,
 `/customer`, `/supplier`, `/dashboard/load` → domain route files. Other
 GET → built React SPA. Unmatched `/api/*`/`/auth/*` → JSON 404. Backend
-authorization is the real security boundary; frontend gating is UX only.
+authorization is the real boundary; frontend gating is UX only.
 
 ## Working principles
 

@@ -1,63 +1,43 @@
 # Final Fixes Progress Log — BPIOLS
 
-Append-only log for the phase defined in `final.md`. Do not rewrite prior
-entries' substance — condense older stages for length only, never change
-what they claim. Separate from `production-progress.md` (previous
-phase's log) — the two must never be confused.
+Append-only log for the phase in `final.md`. Condense older stages for
+length only, never change what they claim. Separate from
+`production-progress.md` (earlier phase's log) — never confuse the two.
+Stage numbering follows `final.md` only, starting at Stage 1.
 
-Stage numbering here follows `final.md` only, starting fresh at Stage 1,
-independent of `production.md`'s Stage 1–8 and the original build's
-`progress.md` numbering.
+`final.md` was agreed 2026-08-24; a second triage doc merged in as
+Stages 12–14 on 2026-08-25. All 16 original notebook items are
+accounted for; "Deferred" is empty as of Stage 17. Stages 18–19 were
+raised and scoped directly by Hassan on 2026-08-29, same as Stage 16.
 
-`final.md` was agreed 2026-08-24 after a full item-by-item discussion of
-Hassan's handwritten notes/screenshots. **2026-08-25:** a second triage
-document (Exchange process, Offline management overhaul, Dashboard
-offline-billing visibility, plus one standalone question) was merged in
-as Stages 12–14; Stages 1–11 untouched. All 16 original notebook items
-are accounted for across 14 stages; "Deferred" is empty.
-
-**Stages 1–6 complete (2026-08-25, condensed).** Stage 1: PKR currency
-via `formatMoney()` (`Rs 1,234.50`, comma-grouped). Stage 2: sequential
-`#000N` product IDs server-side (`nextProductId()`/`models/Counter.js`,
-atomic, deleted IDs never reissued). Stage 3: `AuditLog.jsx` flattened
-before/after diff table (`lib/flattenObject.js`) replacing raw JSON.
-Stage 4: PDF export alongside CSV for all 5 report routes (`lib/pdf.js`'s
-`sendTablePDF()`, `pdfkit`). Stage 5: toast/confirm infra (`sonner`,
-`ConfirmDialog.jsx`'s `useConfirm()`). Stage 6: migrated all 64
-`alert()`/`confirm()` call sites across 6 pages — zero remain in
-`pages/`. Verified throughout: boot-tested, `npm test` 66/66, `npm run
-build` clean, `oxlint` 0 errors. No live DB/browser in sandbox for any
-stage — standing constraint, not a defect.
-
-**Stage 7 complete (2026-08-25, condensed).** Add Product's create path
-requires `cost`; positive initial stock creates a matching
-`NoSupplier`-tagged `StockBatch` via shared `createBatch()`/
-`generateUniquePurchaseId()` (extracted to `lib/costing.js`, shared
-by `routes/suppliers.js`). Incidental one-line fix: `routes/suppliers.js`
-was missing its `mongoose` import (pre-existing bug). Verified as above.
-
-**Stage 8 complete (2026-08-25, condensed).** `Billing.jsx` only, no
-backend changes. Selected product's cost renders next to selling price
-in the item-entry form, gated `isAdmin`. Verified as above.
-
-**Stage 9 complete (2026-08-25, split 9a/9b/9c).** 9a: Add/Deduct Stock
+**Stages 1–9 complete (2026-08-25, condensed).** 1: PKR via
+`formatMoney()`. 2: sequential `#000N` product IDs (`nextProductId()`/
+`Counter.js`, atomic, never reissued). 3: `AuditLog.jsx` flattened
+before/after table. 4: PDF export alongside CSV (`lib/pdf.js`,
+`pdfkit`). 5: toast/confirm infra (`sonner`, `ConfirmDialog.jsx`). 6:
+all 64 `alert()`/`confirm()` call sites migrated — zero remain. 7: Add
+Product requires `cost`; positive initial stock creates a matching
+`NoSupplier` `StockBatch` (`lib/costing.js`, shared with
+`routes/suppliers.js`); incidental fix: `suppliers.js` was missing its
+`mongoose` import. 8: Billing shows selected product's cost next to
+selling price, admin-gated. 9 (split 9a/9b/9c): Add/Deduct Stock
 actions, zero-stock auto-disable, `returned_to_supplier` credits
-supplier instead of `Loss`, every other reason writes one `Loss`;
-`/supplier/purchase` now requires a real supplier; removed dead `POST
-/billing/update`. 9b: Loss on Dashboard + 6th Reports export. 9c:
+supplier instead of `Loss`; Loss on Dashboard + 6th Reports export;
 hard-delete requires `{reason, note}`, 400s if `quantity > 0`. Verified
-each sub-stage. Known/open: code-reviewed only, no live Mongo/browser.
+throughout: boot-tested, `npm test` 66/66, build clean, `oxlint` 0
+errors. No live DB/browser in sandbox for any stage — standing
+constraint, not a defect.
 
 **Stage 10 complete (2026-08-26, condensed).** UI polish,
 frontend-only. `Products.jsx` Add/Update colors + 2-column grid;
-`Billing.jsx` cart preview → stacked receipt-lines. Verified: build/
-lint/boot-test/`npm test` all clean. **Same-day correction
-(Hassan-flagged):** the grid had briefly let Update Product's Supplier
-dropdown change `supplierID` — fixed on both sides (dropdown Add-mode
-only; `routes/products.js` update branch never touches `supplierID`).
-Re-verified clean.
+`Billing.jsx` cart preview → stacked receipt-lines. **Same-day
+correction (Hassan-flagged):** the grid had briefly let Update
+Product's Supplier dropdown change `supplierID` — fixed both sides
+(dropdown Add-mode only; update branch never touches `supplierID`).
+Verified clean throughout.
 
-**2026-08-26 — Stage 11 complete.** Bill preview: customer balance.
+**Stage 11 complete (2026-08-26, condensed).** Bill preview: customer
+balance.
 `Billing.jsx` only. "Customer Balance" line at the bottom of the
 on-screen preview (`totalBalanceDue - creditBalance`, pre-sale) when a
 real customer is selected. Verified clean throughout. Known/open:
@@ -151,125 +131,116 @@ code-reviewed only; recommend restocking one product twice at two
 different costs (picker should appear) and a different product twice at
 the same cost (picker should not) once merged.
 
-**2026-08-29 — Stage 16 complete.** Raised directly by Hassan (not
-pre-staged in `final.md` beforehand — added retroactively per the
-project's own "newly raised items get promoted to a numbered stage"
-convention), frontend-only, three parts. **16a:** `Suppliers.jsx`'s
-purchase-history `Balance` column (color+sign plus a small "credit
-used" note folded in underneath) split into a `Status` column (`Due Rs
-X` / `Credit +Rs X` / `Settled`) and a separate `Credit Used` column —
-same `balanceDue`/`creditGenerated`/`creditApplied` fields, relabeled/
-split only, no calculation touched. **16b:** `Orders.jsx`'s "Refund
-items" (individual item checkboxes + editable quantities, duplicating
-the edit form above it) replaced with a single **Refund Full Order
-(Cash Back)** action — full order, all lines at full quantity,
-`settlement: 'cash'` (unchanged, already hardcoded). "Edit a line item"
-→ **Exchange — reduce a line item (Store Credit)**; "Add a new item" →
-**Exchange — add a replacement item (Store Credit)** — labels only,
-both already settle credit-only (backend already ignores any
-`settlement` sent on `/api/order/:orderID/edit`). Printed "Revised
-Receipt" edit-history rows previously always said `Store Credit: Rs X`
-regardless of actual settlement — now conditionally labels `Exchange —
-Store Credit: Rs X` / `Cash Back: Rs X` / `—`, matching the on-screen
-Edit History. **16c:** `Billing.jsx`'s "🧾 Special Bill" button, preview
-modal, `showSpecialPreview` state, and `printSpecialReceiptFor` removed
-entirely; `handleGenerateBill` no longer takes a `special` param.
-`customerDirectory` kept (still backs Customer Balance). Incidental:
-removed a leftover debug `console.log('REFUND RESPONSE:', data)` in
-`Orders.jsx`'s refund handler. **Affected files:** `Suppliers.jsx`,
-`Orders.jsx`, `Billing.jsx` — no backend routes touched, confirmed
-first against `routes/suppliers.js`/`routes/orders.js` that no
-calculation needed to change. Verified: `frontend` build clean, `oxlint`
-0 errors on all three files, boot-tested (`GET /api/orders`, `GET
-/api/products`, `POST /supplier/purchase`, `POST /api/order/:id/refund`,
-`POST /api/order/:id/edit` all 401 with no token), root `npm test`
-66/66, `frontend npm test` 10/10 (both unaffected, no backend/offline
-files touched). Known/open: no live browser — the new Supplier columns,
-full-refund-only flow, and Special Bill's removal are code-reviewed
-only; recommend a manual check of each once merged.
+**Stage 16 complete (2026-08-29, condensed).** Raised directly by
+Hassan, frontend-only, three parts. 16a: `Suppliers.jsx`'s purchase-
+history `Balance` column split into `Status` (`Due`/`Credit`/`Settled`)
++ a separate `Credit Used` column — relabeled/split only, same fields,
+no calculation touched. 16b: `Orders.jsx`'s per-item Refund picker
+replaced with a single **Refund Full Order (Cash Back)** action
+(`settlement: 'cash'`, already hardcoded); "Edit"/"Add item" relabeled
+**Exchange — ... (Store Credit)** (backend already credit-only);
+printed Revised Receipt now labels each edit-history row `Exchange —
+Store Credit`/`Cash Back`/`—` to match. 16c: `Billing.jsx`'s "Special
+Bill" button/modal/handler removed entirely. Incidental: removed a
+leftover debug `console.log` in `Orders.jsx`'s refund handler. Verified:
+build/`oxlint` clean on all three files, boot-tested (5 routes all 401
+with no token), `npm test` 66/66, `frontend npm test` 10/10. Known/open:
+no live browser — code-reviewed only.
 
-**2026-08-29 — Stage 17 complete.** App-wide friendly offline/
-unreachable-server handling. Raised directly by Hassan after killing the
-backend (`node main.js`) while the frontend dev server stayed up and
-seeing raw `ECONNREFUSED` proxy noise — asked that the app "survive
-properly if already logged in." Confirmed already correct, untouched:
-`AuthContext.jsx`'s silent refresh already swallows a connectivity
-failure without logging anyone out (only a genuine 401 does); Billing's
-`handleAddToBill`/`handleGenerateBill` already fall back to the
-IndexedDB offline queue via `isNetworkError(err)`
-(`err instanceof TypeError`, from `lib/offlineSync.js`), independent of
-`navigator.onLine` — so they already survive this exact scenario
-(backend down, network adapter still up). The actual gap: every page's
-existing try/catch showed the raw browser error text ("Failed to
-fetch") instead of a friendly message, and no page but Billing had any
-shared "can't reach the server" signal. New `frontend/src/lib/
-networkStatus.js`: a tiny pub-sub (`markOffline`/`markOnline`/
-`subscribeNetworkStatus`/`isOffline`), mirroring `offlineSync.js`'s
-existing `subscribeAutoSync` pattern. `lib/api.js`'s `request()` (and
-`downloadExport()`, which bypasses it) now catches a raw `fetch()`
-failure, calls `markOffline()`, and sets a friendlier `.message` on the
-*same* `TypeError` object rather than throwing a new `Error` — critical,
-since `isNetworkError()`'s `err instanceof TypeError` check would
-otherwise stop matching and silently break Billing's offline-queue
-fallback; `markOnline()` fires on any response reaching the server at
-all, even non-2xx. New `frontend/src/components/
-NetworkStatusBanner.jsx`, mounted once in `App.jsx` next to
-`SyncOverlay`, shows a slim app-wide banner while `isOffline()` is true.
-No changes to `Billing.jsx`, `offlineSync.js`, or `AuthContext.jsx` — all
-three already correct. **Affected files:** new `lib/networkStatus.js`,
-new `components/NetworkStatusBanner.jsx`, `lib/api.js`, `App.jsx`.
-Verified: `frontend` build clean, `oxlint` 0 errors on all four touched/
-added files, `frontend npm test` 10/10 (confirms `isNetworkError`'s
-`TypeError` check still holds), root `npm test` 66/66 (unaffected, no
-backend files touched). Known/open: no live browser in this sandbox —
-the banner's actual appearance/disappearance against a real killed
-backend is code-reviewed only; recommend once merged: start both
-servers, log in, stop the backend process, confirm the banner appears
-and a Products/Customers/etc. load shows the new friendly message
-instead of "Failed to fetch," confirm the session stays logged in,
-restart the backend and confirm the banner clears on the next request.
-**2026-08-29 — Stage 18 complete.** Thermal receipt printing (ESC/POS
-over Web USB) with manual-print fallback. Raised directly by Hassan:
-bills should print on a thermal till printer automatically, falling
-back to today's manual popup print only when no thermal printer is
-available/connected. Confirmed via chat before starting: printer
-connects over USB (not Serial), and it only needs to work in a plain
-Chrome/Edge browser tab right now, not inside Electron (not built yet).
-New `frontend/src/lib/thermalPrint.js`: `isWebUSBSupported()`;
-`pairThermalPrinter()` (calls `navigator.usb.requestDevice` — must run
-from a real click, one-time browser permission grant, never called
-automatically); `getPairedPrinter()`/`tryThermalPrint(data)` (silent
-`navigator.usb.getDevices()`, never prompts) — builds raw ESC/POS bytes
-(init, bill ID, item lines padded to a 32-char thermal width, discount/
-total/paid/change-or-balance-due, customer, partial cut) and writes them
-via `transferOut` to the printer's bulk OUT endpoint; resolves `false`
-(never throws) on any failure — no printer paired, open/claim/write
-error, endpoint not found — so the caller always has a clean fallback
-signal. `Billing.jsx`: new "🖨️ Connect Thermal Printer" button in the
-page header (only rendered `if (webUSBSupported)`) calling
-`pairThermalPrinter()` directly from its `onClick`, with a
-paired/not-paired indicator driven by `getPairedPrinter()` on mount plus
-`navigator.usb`'s `connect`/`disconnect` events. `printReceiptFor()` is
-now `async`: tries `tryThermalPrint()` first when Web USB is supported,
-toasts "Printed to thermal printer." on success, otherwise falls through
-to the exact same `printReceipt()` HTML-popup flow as before this stage
-— no change to that path's markup or the data it's given. Both call
-sites (`handleGenerateBill`'s online success path and its offline-queue
-fallback branch) now `await` it. `Orders.jsx`'s separate revised-receipt
-print (Stage 7) is untouched, out of this stage's scope. **Affected
-files:** new `frontend/src/lib/thermalPrint.js`, `frontend/src/pages/
-Billing.jsx`. Verified: `frontend` build clean, `oxlint` 0 errors on
-both touched/added files, `frontend npm test` 10/10 (offline-queue tests
-unaffected, no offline files touched), root `npm test` 66/66 (unaffected
-— no backend files touched, this stage is frontend-only). Known/open: no
-live browser with real USB hardware in this sandbox — Web USB itself
-(`navigator.usb`) cannot be exercised here at all, so the pairing flow,
-ESC/POS byte output against a real printer, and the fallback trigger are
-code-reviewed only; recommend once merged: pair a real USB thermal
-printer via the new button, generate a bill and confirm it prints
-directly with a "Printed to thermal printer" toast and no popup; then
-unplug/skip pairing and confirm a bill falls back to exactly today's
-print-dialog popup. Also unverified: exact ESC/POS command compatibility
-varies by printer model — the command set used (`ESC @`, `ESC a`,
-`ESC !`, `GS V`) is the common baseline most ESC/POS printers support,
-but a specific model may need tuning once tested against real hardware.
+**Stage 17 complete (2026-08-29, condensed).** App-wide friendly
+offline/unreachable-server handling, raised after killing the backend
+while the frontend dev server stayed up. Confirmed already-correct and
+untouched: `AuthContext.jsx` never force-logs-out on a connectivity
+failure (only a genuine 401 does); Billing's offline-queue fallback
+(`isNetworkError`, `err instanceof TypeError`) already survives
+backend-down-network-up. The actual gap: raw "Failed to fetch" text
+everywhere, no shared offline signal outside Billing. New
+`lib/networkStatus.js` (pub-sub, mirrors `subscribeAutoSync`);
+`lib/api.js`'s `request()`/`downloadExport()` now call `markOffline()`
+on a raw fetch failure (relabeling `.message` on the *same* `TypeError`
+object — critical, so `isNetworkError()`'s type check keeps matching)
+and `markOnline()` on any response at all; new
+`NetworkStatusBanner.jsx` mounted next to `SyncOverlay`. Verified:
+build/`oxlint` clean on all 4 touched/added files, `frontend npm test`
+10/10 (confirms the `TypeError` check still holds), `npm test` 66/66.
+Known/open: no live browser — banner behavior against a real killed
+backend is code-reviewed only.
+
+**Stage 18 complete (2026-08-29, condensed).** Thermal receipt printing
+(ESC/POS over Web USB) with manual-print fallback. Confirmed via chat:
+USB (not Serial), plain Chrome/Edge tab for now (not Electron, not
+built yet). New `frontend/src/lib/thermalPrint.js`:
+`pairThermalPrinter()` (click-triggered one-time `navigator.usb.
+requestDevice` pairing) vs. silent `getPairedPrinter()`/
+`tryThermalPrint(data)` (`navigator.usb.getDevices()`, never prompts) —
+builds raw ESC/POS bytes and writes via `transferOut`; resolves `false`
+(never throws) on any failure so the caller always has a clean fallback
+signal. `Billing.jsx`: new header "Connect Thermal Printer" button;
+`printReceiptFor()` is now `async`, tries `tryThermalPrint()` first,
+falls through to the unchanged `printReceipt()` popup on `false`.
+`Orders.jsx`'s separate receipt print untouched. Verified: build/
+`oxlint` clean on both touched/added files, `frontend npm test` 10/10,
+`npm test` 66/66 (backend untouched, frontend-only stage). Known/open:
+no live USB hardware in this sandbox — pairing and ESC/POS output are
+code-reviewed only; recommend pairing a real printer and testing both
+the print and no-printer-fallback paths once merged. Exact ESC/POS
+command compatibility may need tuning per printer model.
+
+**2026-08-29 — Stage 19 complete.** Overpayment prompt: change back vs.
+customer balance. Raised directly by Hassan, same session as Stage 18.
+Two open questions confirmed via chat before starting: a walk-in sale
+always gets change, no prompt (no account to credit); an offline sale
+that overpays and syncs later always defaults to change (matches
+today's behavior — cashier isn't present at sync time). Confirmed the
+existing behavior first: `routes/billing.js`'s draft-commit handler
+already deliberately capped `amountPaid` at `netOwed`, discarding any
+excess as unpersisted "change" — an explicit prior decision, not a bug.
+New: `models/PendingBill.js` gets `overpaymentChoice` (`'change'|
+'balance'`, default `'change'`), carried in the draft the same
+tamper-resistant way as `paidInput`/`paymentMethod` rather than a
+trusted request param. `POST /billing/draft` accepts/validates it with
+the same quiet-default-on-bad-value pattern as `paymentMethod`. The
+draft-commit handler (`POST /billing/orderDetails`) computes
+`overpaidAmount = paidInput - netOwed` and, only when the sale isn't
+walk-in, the amount is positive, and `draft.overpaymentChoice ===
+'balance'`, adds it onto the existing `newCreditBalance` write inside
+the same transaction that already handles credit auto-apply — so it's
+one write to `Customer.creditBalance`, not two. `Billing.jsx`: new
+`chooseOverpaymentSettlement(amount)` — a `sonner` toast with `action`
+("Add to Balance") and `cancel` ("Give Change") buttons, resolving a
+Promise; only shown in `handleGenerateBill` when `paidNum > total`, the
+customer isn't the `WALKIN_CUSTOMER` sentinel, and the app doesn't
+already look offline (`!offlineSyncEnabled || isOnline`) — the exact
+default-to-change confirmed above. The choice is threaded through
+`saveDraftNow()`'s new 4th param into the draft before `api.saveOrder()`,
+and into `printReceiptFor()`'s new 4th param, which now labels the
+settlement line "Added to Customer Balance" instead of "Change" only
+when that's genuinely what happened. The offline-queue fallback call
+site always passes `'change'` explicitly regardless of what was chosen,
+since offline sync never applies balance credit — keeps the printed
+slip honest. **Incidental (in the exact functions/lines already being
+touched):** several pre-existing comments in `routes/billing.js` and
+`Billing.jsx` were labeled "Stage 19" from an old, unrelated numbering
+(the walk-in-customer sentinel) and now directly collided with this
+stage's own "Stage 19" comments in the same functions — relabeled those
+specific lines to drop the stale stage number rather than leave two
+different features both claiming to be "Stage 19" in the same file; no
+other comment-stripping pass was done. **Affected files:** `models/
+PendingBill.js`, `routes/billing.js`, `frontend/src/pages/Billing.jsx`.
+Verified: `frontend` build clean, `oxlint` 0 errors on all three touched
+files, `frontend npm test` 10/10, root `npm test` 66/66, backend
+boot-tested (`node main.js` with a real `.env`, no live Mongo in this
+sandbox) — `POST /billing/draft` and `POST /billing/orderDetails` both
+401 with no token, `POST /billing/draft` with a well-formed body
+including `overpaymentChoice: "balance"` and a garbage token also 401
+(parses fine, rejected by auth as expected, confirming the new field
+doesn't break request parsing/validation ordering). Known/open: no live
+browser and no live MongoDB replica set in this sandbox — the toast
+prompt's actual appearance/button behavior, the transaction correctly
+crediting `creditBalance`, and the printed receipt's two labels are
+code-reviewed only; recommend once merged: ring up a real customer sale,
+overpay it, confirm the toast appears with both choices, pick "Add to
+Balance" and confirm that customer's balance increased by exactly the
+overpaid amount and the receipt says so; repeat choosing "Give Change"
+and confirm nothing changed on the account; confirm a walk-in overpay
+never shows the prompt.

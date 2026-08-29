@@ -12,7 +12,7 @@ import { isNetworkError, flushQueue } from '../lib/offlineSync';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const emptyCustomerForm = { customerName: '', mobileNo: '', emergencyMobile: '', email: '', address: '' };
-// Stage 19: sentinel customerName for an untracked walk-in sale — must
+// Walk-in sentinel: customerName for an untracked walk-in sale — must
 // match WALKIN_CUSTOMER in main.js exactly, since this string is sent
 // straight through as the order's customerName (same as any real
 // customer's name is today) and the backend special-cases this one value
@@ -103,6 +103,28 @@ export default function Billing() {
     }
   };
 
+  // Stage 19: prompts the cashier, via a toast with two explicit choices,
+  // what to do with an overpayment before the sale commits. Resolves
+  // 'balance' or 'change' — never rejects, and always resolves 'change'
+  // if the cashier dismisses it without picking, since that's today's
+  // existing behavior and the safer default.
+  const chooseOverpaymentSettlement = (amount) =>
+    new Promise((resolve) => {
+      let settled = false;
+      const settle = (choice) => {
+        if (settled) return;
+        settled = true;
+        resolve(choice);
+      };
+      toast(`Customer overpaid by ${formatMoney(amount)}. What should happen with the extra?`, {
+        duration: Infinity,
+        action: { label: 'Add to Balance', onClick: () => settle('balance') },
+        cancel: { label: 'Give Change', onClick: () => settle('change') },
+        onDismiss: () => settle('change'),
+        onAutoClose: () => settle('change'),
+      });
+    });
+
   const loadProducts = () =>
     api
       .getProducts({ limit: 1000 })
@@ -114,7 +136,16 @@ export default function Billing() {
   // before the next thing happens: right after a bill ID is reserved
   // (Preview) and right before discarding (Cancel). Everywhere else, the
   // debounced autosave is enough — see CLAUDE.md Stage 4.
-  const saveDraftNow = async (itemsOverride, custOverride, billIdOverride) => {
+  //
+  // Stage 19: `overpaymentChoiceOverride` carries the cashier's
+  // change-vs-balance pick from handleGenerateBill's prompt into the
+  // draft, same tamper-resistance reason as paidInput/paymentMethod —
+  // the server reads it from the draft at commit time, not from a
+  // separate request param. Every other caller (autosave, Preview,
+  // Cancel) doesn't know or care about it yet, so it defaults to
+  // 'change', matching today's behavior until the cashier is actually
+  // asked.
+  const saveDraftNow = async (itemsOverride, custOverride, billIdOverride, overpaymentChoiceOverride) => {
     const source = itemsOverride ?? billingItems;
     const itemsArr = Object.values(source).map((it) => ({
       productID: `#${it.productCode}`,
@@ -134,6 +165,7 @@ export default function Billing() {
         // trusting a value sent only with the commit request.
         paidInput: parseFloat(paid) || 0,
         paymentMethod,
+        overpaymentChoice: overpaymentChoiceOverride || 'change',
       });
     } catch (err) {
       console.error('Draft save failed:', err.message);
@@ -540,8 +572,16 @@ export default function Billing() {
   // throws, resolving `false` for "no printer paired" same as any other
   // failure. Only on `false` does it fall through to exactly the same
   // popup-print flow as before this stage.
-  const printReceiptFor = async (total, paidNum, offline = false) => {
-    const settlementLabel = paidNum >= total ? 'Change' : 'Balance Due (Credit)';
+  //
+  // Stage 19: `overpaymentChoice` ('change'|'balance', default 'change')
+  // only changes the label shown for an overpayment — 'change' means
+  // exactly what it said before this stage; 'balance' is only ever
+  // passed when that's genuinely what happened server-side (see
+  // handleGenerateBill — the offline-queued call site always passes
+  // 'change' explicitly, since offline sync never applies balance).
+  const printReceiptFor = async (total, paidNum, offline = false, overpaymentChoice = 'change') => {
+    const isOverpaid = paidNum > total;
+    const settlementLabel = paidNum < total ? 'Balance Due (Credit)' : isOverpaid && overpaymentChoice === 'balance' ? 'Added to Customer Balance' : 'Change';
     const settlementAmount = formatMoney(Math.abs(paidNum - total));
 
     if (webUSBSupported) {
@@ -615,11 +655,24 @@ export default function Billing() {
       if (!proceed) return;
     }
 
+    // Stage 19: an overpayment on a real customer's sale needs the
+    // cashier to say what happens to the extra. A walk-in sale has no
+    // customer account to credit, so it's always change — no prompt.
+    // Only asked while apparently online: if offlineSyncEnabled and the
+    // network already looks down, the sale is going to queue offline
+    // regardless, and offline sync never applies balance (confirmed
+    // default), so asking would be misleading.
+    let overpaymentChoice = 'change';
+    const overpaidAmount = roundMoney(paidNum - total);
+    if (overpaidAmount > 0 && customer !== WALKIN_CUSTOMER && (!offlineSyncEnabled || isOnline)) {
+      overpaymentChoice = await chooseOverpaymentSettlement(overpaidAmount);
+    }
+
     try {
       // Make sure the server's draft is exactly what's on screen before
       // asking it to commit — it's what the server treats as the source
       // of truth for what's being sold (see CLAUDE.md Stage 4).
-      await saveDraftNow();
+      await saveDraftNow(undefined, undefined, undefined, overpaymentChoice);
 
       // No payload: the server reads the cashier's persisted draft rather
       // than trusting anything sent here. It re-verifies price/discount
@@ -633,7 +686,7 @@ export default function Billing() {
         return;
       }
 
-      await printReceiptFor(total, paidNum);
+      await printReceiptFor(total, paidNum, false, overpaymentChoice);
       toast.success('Order saved successfully.');
       resetBill();
       setCustomer('unknown');
@@ -664,7 +717,11 @@ export default function Billing() {
             paymentMethod,
             createdOfflineAt: new Date().toISOString(),
           });
-          await printReceiptFor(total, paidNum, true);
+          // Stage 19: honest receipt — offline sync never applies a
+          // balance credit, so this always prints as change regardless
+          // of what was chosen above (only reachable if the network
+          // looked fine when asked but then failed).
+          await printReceiptFor(total, paidNum, true, 'change');
           toast.success('No connection — this bill has been saved on this device and will sync automatically once you\'re back online.');
           resetBill();
           setCustomer('unknown');
