@@ -6,6 +6,7 @@ import { ConfirmProvider } from './components/ConfirmDialog';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import SyncOverlay from './components/SyncOverlay';
+import NetworkStatusBanner from './components/NetworkStatusBanner';
 import { startOfflineSyncWatcher } from './lib/offlineSync';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -32,6 +33,7 @@ export default function App() {
     <AuthProvider>
       <ConfirmProvider>
         <Toaster richColors position="top-right" />
+        <NetworkStatusBanner />
         <SyncOverlay />
         <BrowserRouter>
           <Routes>

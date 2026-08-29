@@ -2,6 +2,8 @@
 // backend (main.js) on http://localhost:3000 — see vite.config.js.
 // In production, serve the built frontend behind the same host as the
 // backend (or set VITE_API_BASE) so these relative paths still resolve.
+import { markOffline, markOnline } from './networkStatus';
+
 const BASE = import.meta.env.VITE_API_BASE || '';
 const TOKEN_KEY = 'pos.token';
 
@@ -15,14 +17,29 @@ export const tokenStore = {
 
 async function request(path, options = {}) {
   const token = tokenStore.get();
-  const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+  } catch (err) {
+    // Stage 17 — a raw fetch() failure (backend unreachable) means we
+    // never got a Response at all. Mutate the message on the same
+    // TypeError object rather than throwing a new Error — lib/offlineSync.js's
+    // isNetworkError() checks `err instanceof TypeError`, and Billing's
+    // offline-queue fallback depends on that check still matching.
+    markOffline();
+    if (err instanceof TypeError) {
+      err.message = "Can't reach the server — check your connection.";
+    }
+    throw err;
+  }
+  markOnline();
 
   if (res.status === 401) {
     // Token missing/expired/invalid — clear it and let any listener (the
@@ -103,9 +120,19 @@ export const api = {
     if (format === 'pdf') params.set('format', 'pdf');
     const query = params.toString() ? `?${params.toString()}` : '';
     const token = tokenStore.get();
-    const res = await fetch(`${BASE}/api/export/${type}${query}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    let res;
+    try {
+      res = await fetch(`${BASE}/api/export/${type}${query}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch (err) {
+      markOffline();
+      if (err instanceof TypeError) {
+        err.message = "Can't reach the server — check your connection.";
+      }
+      throw err;
+    }
+    markOnline();
     if (res.status === 401) {
       tokenStore.clear();
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));

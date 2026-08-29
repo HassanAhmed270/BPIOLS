@@ -722,7 +722,73 @@ modal, or handler remains anywhere in `Billing.jsx`.
 
 ---
 
-## Deferred — not yet scoped
+## Stage 17 — App-wide friendly offline/unreachable-server handling
+
+**Raised 2026-08-29** by Hassan, after observing that killing the
+backend (`node main.js` on :3000) while the frontend dev server (:5173)
+stays up floods the terminal with Vite proxy `ECONNREFUSED` errors, and
+asking that "our billing pos should survive properly if its already
+logged in once."
+
+**Confirmed already correct, untouched:**
+- An already-logged-in session is never force-logged-out by a
+  connectivity failure. `AuthContext.jsx`'s silent refresh interval
+  already swallows a failed `api.refresh()` silently (no `res.status`
+  is ever available for a raw `fetch()` failure, so the shared
+  `auth:unauthorized` 401 path never fires); only a genuine 401 from a
+  reachable server logs someone out.
+- `Billing.jsx`'s core save flow (`handleAddToBill`/`handleGenerateBill`)
+  already falls back to the IndexedDB offline queue using
+  `isNetworkError(err)` (`lib/offlineSync.js`) — `err instanceof
+  TypeError`, independent of `navigator.onLine` — so it already survives
+  exactly this scenario (backend down, network adapter still up, so
+  `navigator.onLine` never flips).
+- Every other page (`Products.jsx`, `Customers.jsx`, `Suppliers.jsx`,
+  `Orders.jsx`, `AuditLog.jsx`, `Reports.jsx`, `Dashboard.jsx`,
+  `LowStockBell.jsx`) already wraps its data loads in try/catch and sets
+  an error state rather than crashing.
+
+**The actual gap, and what this stage fixes:** none of the above is
+*friendly*. A failed load anywhere shows the browser's raw error text
+("Failed to fetch") instead of a clear message, and there's no shared,
+app-wide signal that the backend is unreachable — only `Billing.jsx` has
+its own local (and `navigator.onLine`-based, so unreliable for this
+exact scenario) banner.
+
+**Affected areas:**
+- New `frontend/src/lib/networkStatus.js` — a tiny pub-sub
+  (`markOffline()`/`markOnline()`/`subscribeNetworkStatus(fn)`/
+  `isOffline()`), mirroring the existing `subscribeAutoSync` pattern in
+  `lib/offlineSync.js`.
+- `frontend/src/lib/api.js`'s `request()` — on a raw `fetch()` failure,
+  call `markOffline()` and set a friendlier `.message` on the *same*
+  `TypeError` object (never replace it with a new `Error`) so
+  `isNetworkError()`'s `err instanceof TypeError` check in
+  `offlineSync.js` still matches it — Billing's offline-queue fallback
+  must not regress. Call `markOnline()` on any response reaching the
+  server at all (even a non-2xx one).
+- New `frontend/src/components/NetworkStatusBanner.jsx`, mounted once in
+  `App.jsx` next to `SyncOverlay`, subscribing to
+  `subscribeNetworkStatus`.
+
+**Explicitly out of scope:** making Products/Customers/Suppliers/Orders/
+Reports/AuditLog/Dashboard actually *usable* while the backend is down
+(cached lists, queued writes for those pages) — a much larger feature
+than "survive gracefully," not what was asked. `Billing.jsx`'s own
+offline-queue mechanism (Stages 11–13) and `offlineSync.js` are not
+touched.
+
+**Completion criteria:** with the backend stopped and the frontend dev
+server still running, every page's existing error display shows the new
+friendly message instead of "Failed to fetch"; a small banner appears
+app-wide indicating the server is unreachable and clears once a request
+succeeds again; an already-logged-in session is not force-logged-out;
+Billing's offline queue/sync behavior is unchanged and still verified by
+its own existing tests.
+
+---
+
+
 
 All items previously listed here (Exchange process improvements, Offline
 management overhaul, Dashboard offline-billing visibility) are now

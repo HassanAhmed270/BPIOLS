@@ -128,130 +128,29 @@ Known/open: no live Mongo/browser — FIFO on an added line and the
 walk-in→customer credit landing are code-reviewed only; added lines
 never apply a discount (out of scope, not requested).
 
+**2026-08-26 — Stage 15 complete (condensed).** Deduct Stock batch
+selection when cost differs. `lib/costing.js`: new
+`consumeSpecificBatch(productID, batchId, quantity, session)` — draws
+from one named batch only (guarded atomic decrement, same pattern as
+`consumeFIFO`), capped to its own `quantityRemaining`; separate function,
+not a mode flag on `consumeFIFO` — checkout/offline sync still call
+`consumeFIFO` unconditionally. New `listRemainingBatches(productID)`
+(oldest-first). `routes/products.js`: new `GET
+/api/product/:productID/batches` (admin-only); `POST .../deduct-stock`
+takes an optional `batchId`, branches to `consumeSpecificBatch` when
+present else `consumeFIFO` (unchanged default, existing callers
+unaffected). `Products.jsx`: Deduct Stock fetches batches on selection;
+picker only renders when 2+ *distinct* `unitCost` values remain (a
+single cost, even split across batches, stays fully automatic, no
+picker — matches Stage 9). Verified: `npm test` 66/66, boot-tested
+(`GET .../batches`, `POST .../deduct-stock` both 401 with no token),
+`frontend` build clean, `oxlint` 0 errors on all four touched files.
+Known/open: no live Mongo/browser — picker appearance and the resulting
+`Loss`/supplier-credit `costValue` matching the chosen batch exactly are
+code-reviewed only; recommend restocking one product twice at two
+different costs (picker should appear) and a different product twice at
+the same cost (picker should not) once merged.
 
-Confirmed in code before starting (`final.md`'s "Already working today"
-claims): store-credit-only on edit (`recomputeOrderTotals` in
-`routes/orders.js` unconditionally converts freed overpayment to
-`Customer.creditBalance`, no cash-back path) and the "Revised" receipt
-(`Orders.jsx`'s Print button already builds a full edit-history table)
-— both already correct, untouched.
-
-- **Add a new item during an exchange.** `models/Order.js`:
-  `editHistory.action` enum gained `'add'`. `routes/orders.js`: new
-  `applyLineAddition()` mirrors checkout's own line-creation
-  (`getLatestSellingPrice`, atomic guarded stock decrement,
-  `consumeFIFO` for cost basis, `disableIfDepleted`) instead of
-  reinventing it; rejects a `productID` the order already has a line
-  for (points to the existing reduction form instead — quantity changes
-  on an existing line stay `applyLineReduction`'s job, so the two paths
-  never fight over one line's fields). `POST /api/order/:orderID/edit`
-  now branches on `action: 'add'` vs the original reduction behavior;
-  existing calls (no `action` field) are unaffected. No discount
-  support on an added line — out of scope, not requested.
-- **Net balance** — no new logic, per `final.md`: `recomputeOrderTotals`
-  already handles both directions (credit if the swap frees money,
-  `balanceDue` increase if it doesn't).
-- **Walk-in → customer conversion.** `routes/customers.js`: new
-  `POST /customer/create`, upsert-style — creates if the name doesn't
-  exist, returns as-is if it does (never overwrites existing details).
-  `routes/orders.js`: new `POST /api/order/:orderID/convert-customer`
-  reattaches a `WALKIN_CUSTOMER`-sentinel order to a real (already-
-  created) customer — sets `order.customerName`, pushes the order's
-  summary onto `Customer.orders` (same shape checkout's own push uses),
-  400s if the order isn't actually a walk-in or the customer doesn't
-  exist yet. Two separate calls, not one combined endpoint — frontend
-  calls `createCustomer` then `convertWalkInOrder` in sequence.
-- **Frontend** (`Orders.jsx`): "Convert to customer" panel (only shown
-  for a walk-in order, same 72h edit window gate) above "Edit a line
-  item"; new "Add a new item" panel below it — product dropdown
-  excludes products already on the order, quantity, required reason.
-  `allProducts` loaded once on mount (`api.getProducts({limit: 1000})`).
-  `api.js` gained `convertWalkInOrder`/`createCustomer`.
-- **Incidental (one-line, obviously correct):** removed an unused
-  `isValidDiscount` import in `routes/orders.js`, pre-existing, not
-  introduced by this stage — flagged, not silently dropped.
-
-**Affected files:** `models/Order.js`, `routes/orders.js`,
-`routes/customers.js`, `frontend/src/pages/Orders.jsx`,
-`frontend/src/lib/api.js`.
-
-**Verified:**
-- `npm install` + `npm test` — 66/66 pass.
-- Backend boot-tested with a real `.env`: `POST /api/order/:id/edit`
-  (both `add` and reduction bodies), `POST /api/order/:id/convert-
-  customer`, `POST /customer/create`, `GET /api/orders` all correctly
-  401 with no token.
-- `frontend`: `npm install` + `npm run build` (Vite) clean.
-- `npx oxlint` on all five touched files — 0 warnings, 0 errors.
-- Build/test artifacts (`node_modules` both places, `frontend/dist`,
-  `.env`) removed after verification, before packaging.
-
-**Known/open:**
-- No live Mongo replica set or browser in this sandbox — FIFO
-  consumption on an added line, the walk-in→customer credit landing,
-  and the new panels' actual rendering/spacing are code-reviewed only.
-  Recommend once merged: exchange an order to add a new item, confirm
-  stock decrements and `editHistory` shows the `add` action with
-  correct FIFO cost; convert a walk-in order to a new customer, confirm
-  `customerName` updates and a subsequent reduction's freed credit
-  lands on that customer, not lost.
-- Adding a line never applies a discount — if a promotional/matching
-  discount is expected on a swapped-in item, that's not covered here
-  and would need a follow-up decision, not assumed.
-
-**2026-08-26 — Stage 15 complete.**
-
-**Stage 15 — Deduct Stock: batch selection when cost differs.**
-`lib/costing.js`: new `consumeSpecificBatch(productID, batchId, quantity,
-session)` — draws only from one named batch (guarded atomic decrement,
-same pattern as `consumeFIFO`), capped to that batch's own
-`quantityRemaining`; throws `AppError` if the batch doesn't belong to
-the product or doesn't have enough left. Deliberately separate from
-`consumeFIFO`, not a mode flag on it — checkout and offline sync keep
-calling `consumeFIFO` unconditionally, untouched. New
-`listRemainingBatches(productID)` — oldest-first, same ordering
-`consumeFIFO` itself draws in.
-
-`routes/products.js`: new `GET /api/product/:productID/batches`
-(admin-only) returns the raw batch list; `POST .../deduct-stock` now
-accepts an optional `batchId` and branches to `consumeSpecificBatch`
-when present, `consumeFIFO` otherwise (unchanged default) — so any
-existing caller that never sends `batchId` behaves exactly as before.
-
-`frontend/src/pages/Products.jsx`: Deduct Stock fetches a product's
-batches on selection; the picker only renders when 2+ *distinct*
-`unitCost` values remain (a single cost, even split across several
-batches, stays fully automatic — no picker, matches Stage 9's original
-behavior exactly). Picker shows `{qty} unit(s) @ {cost} (bought {date})`
-per batch; selecting one caps the Quantity input's `max` to that
-batch's own remaining and clears the confirm-blocking check requiring a
-choice when more than one cost exists. `api.js` gained
-`getProductBatches`.
-
-**Affected files:** `lib/costing.js`, `routes/products.js`,
-`frontend/src/pages/Products.jsx`, `frontend/src/lib/api.js`.
-
-**Verified:**
-- `npm test` — 66/66 pass.
-- Backend boot-tested with a real `.env`: `GET
-  /api/product/:id/batches` and `POST /api/product/:id/deduct-stock`
-  both correctly 401 with no token.
-- `frontend`: `npm run build` (Vite) clean.
-- `npx oxlint` on all four touched files — 0 warnings, 0 errors.
-- Build/test artifacts (`node_modules`, `frontend/dist`, `.env`)
-  removed after verification, before packaging.
-
-**Known/open:**
-- No live Mongo replica set or browser in this sandbox — the picker's
-  actual appearance/disappearance based on real batch data, and the
-  resulting `Loss`/supplier-credit `costValue` matching the chosen
-  batch's `unitCost × quantity` exactly, are code-reviewed only.
-  Recommend once merged: create a product, restock it twice at two
-  different costs (two `StockBatch`es), confirm Deduct Stock shows the
-  picker and the quantity cap works; restock a *different* product
-  twice at the *same* cost, confirm no picker appears and behavior is
-  unchanged from Stage 9.
-=======
 **2026-08-29 — Stage 16 complete.** Raised directly by Hassan (not
 pre-staged in `final.md` beforehand — added retroactively per the
 project's own "newly raised items get promoted to a numbered stage"
@@ -288,3 +187,44 @@ calculation needed to change. Verified: `frontend` build clean, `oxlint`
 files touched). Known/open: no live browser — the new Supplier columns,
 full-refund-only flow, and Special Bill's removal are code-reviewed
 only; recommend a manual check of each once merged.
+
+**2026-08-29 — Stage 17 complete.** App-wide friendly offline/
+unreachable-server handling. Raised directly by Hassan after killing the
+backend (`node main.js`) while the frontend dev server stayed up and
+seeing raw `ECONNREFUSED` proxy noise — asked that the app "survive
+properly if already logged in." Confirmed already correct, untouched:
+`AuthContext.jsx`'s silent refresh already swallows a connectivity
+failure without logging anyone out (only a genuine 401 does); Billing's
+`handleAddToBill`/`handleGenerateBill` already fall back to the
+IndexedDB offline queue via `isNetworkError(err)`
+(`err instanceof TypeError`, from `lib/offlineSync.js`), independent of
+`navigator.onLine` — so they already survive this exact scenario
+(backend down, network adapter still up). The actual gap: every page's
+existing try/catch showed the raw browser error text ("Failed to
+fetch") instead of a friendly message, and no page but Billing had any
+shared "can't reach the server" signal. New `frontend/src/lib/
+networkStatus.js`: a tiny pub-sub (`markOffline`/`markOnline`/
+`subscribeNetworkStatus`/`isOffline`), mirroring `offlineSync.js`'s
+existing `subscribeAutoSync` pattern. `lib/api.js`'s `request()` (and
+`downloadExport()`, which bypasses it) now catches a raw `fetch()`
+failure, calls `markOffline()`, and sets a friendlier `.message` on the
+*same* `TypeError` object rather than throwing a new `Error` — critical,
+since `isNetworkError()`'s `err instanceof TypeError` check would
+otherwise stop matching and silently break Billing's offline-queue
+fallback; `markOnline()` fires on any response reaching the server at
+all, even non-2xx. New `frontend/src/components/
+NetworkStatusBanner.jsx`, mounted once in `App.jsx` next to
+`SyncOverlay`, shows a slim app-wide banner while `isOffline()` is true.
+No changes to `Billing.jsx`, `offlineSync.js`, or `AuthContext.jsx` — all
+three already correct. **Affected files:** new `lib/networkStatus.js`,
+new `components/NetworkStatusBanner.jsx`, `lib/api.js`, `App.jsx`.
+Verified: `frontend` build clean, `oxlint` 0 errors on all four touched/
+added files, `frontend npm test` 10/10 (confirms `isNetworkError`'s
+`TypeError` check still holds), root `npm test` 66/66 (unaffected, no
+backend files touched). Known/open: no live browser in this sandbox —
+the banner's actual appearance/disappearance against a real killed
+backend is code-reviewed only; recommend once merged: start both
+servers, log in, stop the backend process, confirm the banner appears
+and a Products/Customers/etc. load shows the new friendly message
+instead of "Failed to fetch," confirm the session stays logged in,
+restart the backend and confirm the banner clears on the next request.
