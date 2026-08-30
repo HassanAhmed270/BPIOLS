@@ -49,8 +49,8 @@ Check for an existing helper before creating new logic.
   `consumeSpecificBatch` only on an explicit batch pick (Stage 15);
   checkout/offline sync always use plain `consumeFIFO`.
 - Sequential IDs: `models/Counter.js` (`{_id, seq}`, atomic); first
-  consumer is `routes/products.js`'s `nextProductId()`.
-- Frontend API calls: `frontend/src/lib/api.js`.
+  consumer is `routes/products.js`'s `nextProductId()`. Frontend API
+  calls: `frontend/src/lib/api.js`.
 - Toasts/confirms (Stage 5/6): `sonner`'s `<Toaster>` mounted in
   `App.jsx`, use `toast()`/`.success()`/`.error()`; `ConfirmDialog.jsx`
   exports `ConfirmProvider` + `useConfirm()` — `if (await confirm('Delete
@@ -112,14 +112,26 @@ BPIOLS is a single-shop MERN POS/billing system for one desktop.
 - `.env` is required; `JWT_SECRET` is required for boot and the server
   refuses to boot if it still matches the placeholder in `.env.example`
   (checked in `middleware/auth.js`).
-- **CORS** (deployment.md Stage 16): `lib/cors.js` builds `corsOptions`
-  from `ALLOWED_ORIGINS` (comma-separated env var, empty by default —
-  same-origin production serving needs nothing). `main.js` applies it
-  globally before all routes. No `Origin` header (same-origin, curl,
-  Electron's main process) always passes; an origin not in the list gets
-  no `Access-Control-Allow-Origin` header. Auth uses a Bearer token (no
-  cookies), so no `credentials: true` is needed. Add Electron's origin
-  and any hosted frontend URL to `ALLOWED_ORIGINS`, not this file.
+- **CORS** (Stage 16): `lib/cors.js` builds `corsOptions` from
+  `ALLOWED_ORIGINS` (comma-separated env var, empty by default —
+  same-origin serving needs nothing). `main.js` applies it globally
+  before all routes. No `Origin` header (same-origin, curl) always
+  passes; unlisted origins get no `Access-Control-Allow-Origin` header.
+  Bearer auth (no cookies), so no `credentials: true`. Electron's
+  `file://` renderer sends a literal `"null"` Origin — include `null` in
+  `ALLOWED_ORIGINS` for the desktop build (see `.env.example`).
+- **Electron wrapper** (Stage 17): `electron/main.js` loads `frontend/
+  dist-electron/index.html`; 1024x768 min/default window (above
+  Tailwind `md`/768px). `electron/preload.js` empty —
+  `contextIsolation: true`, no Node/IPC; renderer uses the same
+  `fetch()`-based `lib/api.js` as the web build. `vite.config.js`'s
+  `mode === 'electron'` branch sets `base: './'` (file:// asset
+  resolution) + `outDir: 'dist-electron'`, kept separate from the normal
+  `dist` web build. `frontend/.env.electron` sets `VITE_API_BASE=
+  http://localhost:3000` — edit this file, not app code, for a future
+  hosted-API build. Root scripts: `build-frontend:electron`, `electron`,
+  `electron:build`. `electron` is a `dependencies` entry (Stage 18
+  packaging needs it available the same way).
 - `User.passwordChangedAt` is embedded into every issued JWT (`pwdTs`
   claim). `requireAuth` re-reads it from the DB on every request and
   rejects the token if it's older than the current value — a password
@@ -151,12 +163,10 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   at `quantity` 0 (checkout/offline sync/Deduct Stock; only Add Stock
   clears it) — stays visible, greyed out, won't reserve. `DELETE
   /product/:productID` needs `{reason, note}`, 400s if `quantity > 0`.
-- **UI polish** (Stage 10): Products form uses blue=Add/yellow=Update,
-  2-column grid, Supplier Add-mode only. Billing's cart preview is
-  stacked receipt-lines with a "Customer Balance" line
-  (`totalBalanceDue - creditBalance`, pre-sale, Stage 11). Special Bill
-  was removed (final.md Stage 16) — `printReceiptFor` is the only receipt
-  path.
+- **UI polish** (Stage 10): Products form blue=Add/yellow=Update,
+  2-column grid. Billing's cart preview shows a "Customer Balance" line
+  (Stage 11). Special Bill removed (final.md Stage 16) —
+  `printReceiptFor` is the only receipt path.
 - Audit records go through `logAudit()`; `AuditLog.jsx` shows a
   flattened table (`lib/flattenObject.js`, Stage 3). Every export route
   supports `?format=pdf` (`lib/pdf.js`'s `sendTablePDF()`; Stage 9b added
@@ -166,41 +176,36 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
 - Customer store credit: `Customer.creditBalance` mirrors
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
-  overpayment as credit; a **refund** takes an explicit
-  `settlement: 'cash'|'credit'` (default `'cash'`; final.md Stage 16's
-  Orders UI only ever sends `'cash'`). `POST /billing/orderDetails` auto-applies
-  existing credit against a new order's total, mirroring
-  `POST /supplier/purchase`'s supplier-credit auto-apply.
-  `Order.creditApplied`, `Customer.orders[].creditApplied`/
-  `creditGenerated`, `Order.editHistory[].settlement`/`creditAmount`, and
-  `Refund.settlement`/`creditGenerated` carry this at each level.
-  `recomputeOrderTotals` returns the freed settlement rather than letting
-  it vanish behind `balanceDue`'s clamp-to-zero. Stage 9a's Deduct
-  Stock `returned_to_supplier` reason adjusts *supplier* credit
-  instead — keep the two paths separate. **Overpayment→balance**
-  (Stage 19): `PendingBill.overpaymentChoice` (`'change'|'balance'`,
-  default `'change'`) — `POST /billing/orderDetails` only credits the
-  excess onto `newCreditBalance` when non-walk-in and explicitly
-  `'balance'`; offline sync never applies it (always change there).
+  overpayment as credit; a **refund** takes explicit
+  `settlement: 'cash'|'credit'` (default `'cash'`). `POST
+  /billing/orderDetails` auto-applies existing credit against a new
+  order's total, mirroring supplier-credit auto-apply. `recomputeOrderTotals`
+  returns the freed settlement rather than letting it vanish behind
+  `balanceDue`'s clamp-to-zero. Stage 9a's `returned_to_supplier` reason
+  adjusts *supplier* credit instead — keep the two paths separate.
+  **Overpayment→balance** (Stage 19): `PendingBill.overpaymentChoice`
+  (`'change'|'balance'`, default `'change'`) — `POST
+  /billing/orderDetails` only credits excess onto `newCreditBalance`
+  when non-walk-in and explicitly `'balance'`; offline sync always
+  gives change.
 - **Order edits & walk-in conversion** (Stage 14): `POST
-  /api/order/:orderID/edit` branches on `action` — no `action` is the
-  original reduction path (`applyLineReduction`); `action: 'add'` is
-  `applyLineAddition`, a new line at current selling price via
-  `consumeFIFO`/`disableIfDepleted`, no discount. `POST /customer/create`
-  + `POST /api/order/:orderID/convert-customer` reattach a
+  /api/order/:orderID/edit` branches on `action` — no `action` is
+  `applyLineReduction`; `action: 'add'` is `applyLineAddition`, a new
+  line at current selling price via `consumeFIFO`/`disableIfDepleted`,
+  no discount. `POST /customer/create` + `POST
+  /api/order/:orderID/convert-customer` reattach a
   `WALKIN_CUSTOMER`-sentinel order to a newly created customer.
-- **Refund = Cash Back, Exchange = Store Credit** (final.md Stage 16, UI
-  only, backend already enforced it). `Orders.jsx`'s Refund box always refunds
-  every line at full quantity; the two "Exchange" boxes are the only
-  path touching store credit. `Suppliers.jsx`'s purchase-history rows
-  use a `Status` column (`Due`/`Credit`/`Settled`) + `Credit Used`.
+- **Refund = Cash Back, Exchange = Store Credit** (final.md Stage 16,
+  UI only). `Orders.jsx`'s Refund box refunds every line at full
+  quantity; the two "Exchange" boxes are the only path touching store
+  credit. `Suppliers.jsx` purchase-history rows use a `Status` column
+  (`Due`/`Credit`/`Settled`) + `Credit Used`.
 - User management: `routes/users.js` covers admin create/delete/
   reset-password + self-service password change (refreshes
   `passwordChangedAt`). Deleting your own account or the last admin is
-  blocked. `Users.jsx` at `/workers` (admin-only).
-- `POST /product/undo` validates `productId` with `isValidProductId()`.
-  `loginLimiter`: `max: 20`/15min, `skipSuccessfulRequests: true`.
-  `getDashboardSummary` derives `refundedOrders`/`refundedAmount`.
+  blocked. `Users.jsx` at `/workers` (admin-only). `POST /product/undo`
+  validates via `isValidProductId()`. `loginLimiter`: `max: 20`/15min,
+  `skipSuccessfulRequests: true`.
 - Offline sync: `lib/offlineSync.js`'s `syncOfflineSale()` mirrors
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
@@ -210,28 +215,24 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   (`RECONNECT_DELAY_MS`), an auto-sync pub-sub (`subscribeAutoSync`/
   `isAutoSyncing`) driving `SyncOverlay.jsx`, and `verifyOrderExists()`
   before trusting a "synced" result.
-- Draft persistence has two layers in `Billing.jsx` — don't conflate
-  them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
+- Draft persistence has two layers in `Billing.jsx` — don't conflate.
+  Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
   silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
-  same DB as `sales`, `DB_VERSION` 2) writes on every cart change, not
-  debounced. Local draft checked first on mount; both cleared via
-  `resetBill()`.
-- **App-wide offline signal** (final.md Stage 17, corrected same day):
-  `lib/networkStatus.js` — a pub-sub that `lib/api.js`'s `request()`/
-  `downloadExport()` drive: `markOffline()` + throw a `TypeError` on a raw
-  `fetch()` failure or a non-`ok`, non-JSON response (an infra gateway
-  failure, since every genuine app response is JSON); `markOnline()`
-  otherwise. Keep throwing the *same* `TypeError` — `isNetworkError()`'s
-  `instanceof TypeError` check and Billing's offline-queue fallback
-  depend on it. `NetworkStatusBanner.jsx` shows a banner while
-  `isOffline()` is true, independent of `navigator.onLine`.
+  `DB_VERSION` 2) writes on every cart change, not debounced. Local
+  draft checked first on mount; both cleared via `resetBill()`.
+- **App-wide offline signal** (final.md Stage 17): `lib/networkStatus.js`
+  — a pub-sub `lib/api.js`'s `request()`/`downloadExport()` drive:
+  `markOffline()` + throw a `TypeError` on a raw `fetch()` failure or a
+  non-`ok`, non-JSON response; `markOnline()` otherwise. Keep throwing
+  the *same* `TypeError` — `isNetworkError()`'s `instanceof TypeError`
+  check and Billing's offline-queue fallback depend on it.
+  `NetworkStatusBanner.jsx` shows a banner while `isOffline()` is true.
 - **Thermal printing, Web USB** (final.md Stage 18): `frontend/src/lib/
   thermalPrint.js` — `pairThermalPrinter()` needs a real click
   (`navigator.usb.requestDevice`) vs. silent `getPairedPrinter()`/
   `tryThermalPrint()` (`getDevices()`, never prompts). `Billing.jsx`'s
-  `printReceiptFor` is async: tries `tryThermalPrint()` first, falls back
-  to the unchanged `printReceipt()` popup. USB only; `Orders.jsx`'s
-  revised-receipt print is untouched.
+  `printReceiptFor` is async: tries thermal first, falls back to the
+  unchanged popup `printReceipt()`. USB only; `Orders.jsx` untouched.
 
 ## Request flow
 

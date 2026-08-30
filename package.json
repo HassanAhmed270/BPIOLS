@@ -7,7 +7,10 @@
     "start": "nodemon main.js",
     "test": "node --test tests/money.test.js tests/pricing.test.js tests/validators.test.js tests/costing.test.js tests/orderMath.test.js tests/auth.test.js tests/customerBalance.test.js tests/refundSettlement.test.js",
     "create-user": "node scripts/createUser.js",
-    "build-frontend": "npm --prefix frontend run build"
+    "build-frontend": "npm --prefix frontend run build",
+    "build-frontend:electron": "npm --prefix frontend run build -- --mode electron",
+    "electron": "electron electron/main.js",
+    "electron:build": "npm run build-frontend:electron && npm run electron"
   },
   "author": "Hassan",
   "license": "ISC",
@@ -17,6 +20,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "express-rate-limit": "^8.6.2",
+    "electron": "^33.4.11",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.18.0",
     "nodemon": "^3.1.14",
