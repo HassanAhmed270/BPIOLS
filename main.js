@@ -1,10 +1,12 @@
 require('dotenv').config();
 
 const express = require('express');
+const cors = require('cors');
 const mongoose = require('mongoose');
 const pinoHttp = require('pino-http');
 const path = require('path');
 const fs = require('fs');
+const { corsOptions } = require('./lib/cors');
 
 const Product = require('./models/Product');
 const PendingBill = require('./models/PendingBill');
@@ -32,6 +34,12 @@ const DRAFT_IDLE_TIMEOUT_MS = parseInt(process.env.DRAFT_IDLE_TIMEOUT_MS) || 15 
 const DRAFT_SWEEP_INTERVAL_MS = parseInt(process.env.DRAFT_SWEEP_INTERVAL_MS) || 60 * 1000; // 1 min
 
 // ── Core middleware ─────────────────────────────────────────
+// CORS: same-origin production serving needs none, but Electron's
+// renderer and any separately hosted frontend do. Allowed origins come
+// from ALLOWED_ORIGINS (comma-separated) — see .env.example and
+// CLAUDE.md. Requests with no Origin header (same-origin, curl, the
+// Electron main process) always pass through.
+app.use(cors(corsOptions));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/dashboard/load' } }));

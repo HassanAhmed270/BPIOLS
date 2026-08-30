@@ -1,41 +1,37 @@
-# CLAUDE.md — BPIOLS Final Fixes
+# CLAUDE.md — BPIOLS Deployment Phase
 
-The `production.md` phase (Stage 1–8) is complete and merged. This repo
-is now in a separate **final-fixes phase**, defined by `final.md`. The
-app remains feature-complete; current work is further correctness/UX/
-workflow fixes identified after production-hardening closed. Stages
-1–19 of `final.md` are complete as of this update.
+`production.md` (Stage 1–8) and `final.md` (Stage 1–19) are complete,
+merged, and historical. The app is feature-complete; this repo is now in
+a **deployment phase**, defined by `deployment.md` (CORS, Electron
+packaging, the Windows installer, hosted-production readiness), with
+stage numbering continuing from prior phases starting at **Stage 16**.
 
 ## Document authority
 
-- `final.md` — authoritative plan. `CLAUDE.md` — architecture/working
-  rules. `final-progress.md` — append-only log for this phase.
-- `production.md`/`production-progress.md`/`progress.md` — earlier
-  phases' plans/logs, complete and historical, different Stage
-  numbering, do not reuse. Final-fixes stages start at **Stage 1** and
-  follow `final.md` only.
+- `deployment.md` — authoritative plan. `CLAUDE.md` — architecture/
+  working rules. `deployment-progress.md` — append-only log.
+- `production.md`/`production-progress.md`/`final.md`/`final-progress.md`
+  — earlier phases, complete/historical, different numbering, don't reuse.
 
 ## Start every task by syncing
 
 1. Clone `https://github.com/HassanAhmed270/BPIOLS.git`, or
    `git fetch origin main && git reset --hard origin/main` if already
    cloned this session. Never trust an earlier session's clone.
-2. Read `final.md`, this file, and `final-progress.md` in full.
-3. Identify the next incomplete `final.md` stage and work only on it.
+2. Read `deployment.md`, this file, and `deployment-progress.md` in full.
+3. Identify the next incomplete `deployment.md` stage and work only on it.
 
 ## Scope rules
 
-- Work one `final.md` stage at a time, in order — several stages depend
-  on earlier ones (Stage 6 on 5, Stage 9 on 7, Stage 13 on 12).
+- Work one `deployment.md` stage at a time, in order, from Stage 16.
 - Touch only the stage's listed **Affected areas**; a small, clearly-
   necessary addition a stage's own task list implies may proceed but
-  must be flagged in `final-progress.md`.
+  must be flagged in `deployment-progress.md`.
 - An unrelated one-line, obviously-correct fix may be made inline,
   stated as incidental. Otherwise flag instead of fixing.
 - Do not refactor or "improve while you're here."
-- If a stage becomes too large, flag it and split (Stage 9 → 9a/9b/9c).
-- `final.md`'s "Deferred" section is the holding area for newly raised,
-  not-yet-scoped items before they get promoted to a numbered stage.
+- If a stage becomes too large, flag it and split (e.g. Stage 17 →
+  17a/17b).
 
 ## Existing conventions
 
@@ -84,11 +80,12 @@ not separately strip comments from files a stage doesn't otherwise touch.
 
 ## End-of-stage requirements
 
-A stage is not complete until: `final-progress.md` is appended; `CLAUDE.md`
-is updated if architecture/conventions changed; both docs are delivered;
-code is packaged (`git bundle create output.bundle main`, or a `.patch`
-file) with exact pull/merge commands; verified vs. unverified items are
-stated plainly. Do not begin the next stage until the current one is done.
+A stage is not complete until: `deployment-progress.md` is appended;
+`CLAUDE.md` is updated if architecture/conventions changed; both docs are
+delivered; code is packaged (`git bundle create output.bundle main`, or a
+`.patch` file) with exact pull/merge commands; verified vs. unverified
+items are stated plainly. Do not begin the next stage until the current
+one is done.
 
 ## Project architecture
 
@@ -115,6 +112,14 @@ BPIOLS is a single-shop MERN POS/billing system for one desktop.
 - `.env` is required; `JWT_SECRET` is required for boot and the server
   refuses to boot if it still matches the placeholder in `.env.example`
   (checked in `middleware/auth.js`).
+- **CORS** (deployment.md Stage 16): `lib/cors.js` builds `corsOptions`
+  from `ALLOWED_ORIGINS` (comma-separated env var, empty by default —
+  same-origin production serving needs nothing). `main.js` applies it
+  globally before all routes. No `Origin` header (same-origin, curl,
+  Electron's main process) always passes; an origin not in the list gets
+  no `Access-Control-Allow-Origin` header. Auth uses a Bearer token (no
+  cookies), so no `credentials: true` is needed. Add Electron's origin
+  and any hosted frontend URL to `ALLOWED_ORIGINS`, not this file.
 - `User.passwordChangedAt` is embedded into every issued JWT (`pwdTs`
   claim). `requireAuth` re-reads it from the DB on every request and
   rejects the token if it's older than the current value — a password
@@ -150,7 +155,9 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   2-column grid, Supplier Add-mode only. Billing's cart preview is
   stacked receipt-lines with a "Customer Balance" line
   (`totalBalanceDue - creditBalance`, pre-sale, Stage 11). Special Bill
-  was removed (Stage 16) — `printReceiptFor` is the only receipt path.- Audit records go through `logAudit()`; `AuditLog.jsx` shows a
+  was removed (final.md Stage 16) — `printReceiptFor` is the only receipt
+  path.
+- Audit records go through `logAudit()`; `AuditLog.jsx` shows a
   flattened table (`lib/flattenObject.js`, Stage 3). Every export route
   supports `?format=pdf` (`lib/pdf.js`'s `sendTablePDF()`; Stage 9b added
   `/api/export/losses`), driven by `Reports.jsx`'s `EXPORTS` array.
@@ -160,8 +167,8 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `Supplier.creditBalance` — money owed to the customer from a past
   refund/edit-down settled as credit. An **edit** always settles freed-up
   overpayment as credit; a **refund** takes an explicit
-  `settlement: 'cash'|'credit'` (default `'cash'`; Stage 16's Orders UI
-  only ever sends `'cash'`). `POST /billing/orderDetails` auto-applies
+  `settlement: 'cash'|'credit'` (default `'cash'`; final.md Stage 16's
+  Orders UI only ever sends `'cash'`). `POST /billing/orderDetails` auto-applies
   existing credit against a new order's total, mirroring
   `POST /supplier/purchase`'s supplier-credit auto-apply.
   `Order.creditApplied`, `Customer.orders[].creditApplied`/
@@ -179,12 +186,11 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   /api/order/:orderID/edit` branches on `action` — no `action` is the
   original reduction path (`applyLineReduction`); `action: 'add'` is
   `applyLineAddition`, a new line at current selling price via
-  `consumeFIFO`/`disableIfDepleted`, no discount (`editHistory.action`:
-  `'edit'|'refund'|'add'`). `POST /customer/create` (upsert-style) +
-  `POST /api/order/:orderID/convert-customer` reattach a
+  `consumeFIFO`/`disableIfDepleted`, no discount. `POST /customer/create`
+  + `POST /api/order/:orderID/convert-customer` reattach a
   `WALKIN_CUSTOMER`-sentinel order to a newly created customer.
-- **Refund = Cash Back, Exchange = Store Credit** (Stage 16, UI only,
-  backend already enforced it). `Orders.jsx`'s Refund box always refunds
+- **Refund = Cash Back, Exchange = Store Credit** (final.md Stage 16, UI
+  only, backend already enforced it). `Orders.jsx`'s Refund box always refunds
   every line at full quantity; the two "Exchange" boxes are the only
   path touching store credit. `Suppliers.jsx`'s purchase-history rows
   use a `Status` column (`Due`/`Credit`/`Settled`) + `Credit Used`.
@@ -199,40 +205,33 @@ Core models: `Product`, `Customer`, `Order`, `Supplier`, `Refund`,
   `routes/billing.js`'s `isWalkIn` skip for `WALKIN_CUSTOMER` and its
   zero-stock auto-disable — keep in sync if either changes. Does not
   apply customer credit. Sets `Order.offlineOrigin: true` at creation
-  (Stage 13, sole writer); `getDashboardSummary` counts it as
-  `offlineOrders`. Stage 13 also added a 60s debounced reconnect delay
-  (`RECONNECT_DELAY_MS`), an auto-sync-only pub-sub (`subscribeAutoSync`/
+  (sole writer); `getDashboardSummary` counts it as `offlineOrders`.
+  Stage 13 also added a 60s debounced reconnect delay
+  (`RECONNECT_DELAY_MS`), an auto-sync pub-sub (`subscribeAutoSync`/
   `isAutoSyncing`) driving `SyncOverlay.jsx`, and `verifyOrderExists()`
-  before trusting a "synced" result — `conflict` only on genuine
-  not-found, else `pending`.
+  before trusting a "synced" result.
 - Draft persistence has two layers in `Billing.jsx` — don't conflate
   them. Server-side (`PendingBill`, 7s-debounced `api.saveDraft`) fails
   silently offline. Local (Stage 12, `offlineQueue.js`'s `drafts` store,
   same DB as `sales`, `DB_VERSION` 2) writes on every cart change, not
   debounced. Local draft checked first on mount; both cleared via
   `resetBill()`.
-- **App-wide offline signal** (Stage 17, corrected same day): `lib/
-  networkStatus.js` — a pub-sub (mirrors `subscribeAutoSync`) that
-  `lib/api.js`'s `request()`/`downloadExport()` drive: `markOffline()` +
-  throw a `TypeError` on either a raw `fetch()` failure *or* a non-`ok`,
-  non-JSON response (Vite's dev proxy answers a killed backend with a
-  resolved 502/503/504, not a thrown error — every genuine app response
-  is JSON via `asyncHandler`/`AppError`, so non-JSON+non-ok reliably
-  means an infra gateway failure, not an app error); `markOnline()`
-  otherwise. Keep throwing the *same* `TypeError` object rather than a
-  new `Error` — `isNetworkError()`'s `instanceof TypeError` check must
-  keep matching it, since Billing's offline-queue fallback depends on
-  it. `NetworkStatusBanner.jsx` (next to `SyncOverlay`) shows a banner
-  while `isOffline()` is true — independent of `navigator.onLine`.
-- **Thermal printing, Web USB** (Stage 18): `frontend/src/lib/
+- **App-wide offline signal** (final.md Stage 17, corrected same day):
+  `lib/networkStatus.js` — a pub-sub that `lib/api.js`'s `request()`/
+  `downloadExport()` drive: `markOffline()` + throw a `TypeError` on a raw
+  `fetch()` failure or a non-`ok`, non-JSON response (an infra gateway
+  failure, since every genuine app response is JSON); `markOnline()`
+  otherwise. Keep throwing the *same* `TypeError` — `isNetworkError()`'s
+  `instanceof TypeError` check and Billing's offline-queue fallback
+  depend on it. `NetworkStatusBanner.jsx` shows a banner while
+  `isOffline()` is true, independent of `navigator.onLine`.
+- **Thermal printing, Web USB** (final.md Stage 18): `frontend/src/lib/
   thermalPrint.js` — `pairThermalPrinter()` needs a real click
-  (`navigator.usb.requestDevice`, Billing's header "Connect Thermal
-  Printer" button) vs. silent `getPairedPrinter()`/`tryThermalPrint()`
-  (`getDevices()`, never prompts). `Billing.jsx`'s `printReceiptFor` is
-  now async: tries `tryThermalPrint()` first, falls back to the
-  unchanged `printReceipt()` popup on `false`/failure. USB only (no
-  Serial/network printers); `Orders.jsx`'s revised-receipt print is
-  untouched.
+  (`navigator.usb.requestDevice`) vs. silent `getPairedPrinter()`/
+  `tryThermalPrint()` (`getDevices()`, never prompts). `Billing.jsx`'s
+  `printReceiptFor` is async: tries `tryThermalPrint()` first, falls back
+  to the unchanged `printReceipt()` popup. USB only; `Orders.jsx`'s
+  revised-receipt print is untouched.
 
 ## Request flow
 
@@ -244,7 +243,8 @@ authorization is the real boundary; frontend gating is UX only.
 
 ## Working principles
 
-Preserve existing behavior unless the current `final.md` stage explicitly
-requires changing it. Do not add features simply because they appear
-useful. When a change conflicts with historical assumptions, follow the
-repository plus `final.md`, then document it in `final-progress.md`.
+Preserve existing behavior unless the current `deployment.md` stage
+explicitly requires changing it. Do not add features simply because they
+appear useful. When a change conflicts with historical assumptions,
+follow the repository plus `deployment.md`, then document it in
+`deployment-progress.md`.
