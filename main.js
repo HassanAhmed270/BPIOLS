@@ -31,7 +31,8 @@ const port = Number(process.env.PORT) || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 const MONGO_URI =
-  process.env.MONGO_URI ||
+  process.env.MONGO_URI 
+  ||
   (isProduction
     ? null
     : 'mongodb://localhost:27017/billing_system');
