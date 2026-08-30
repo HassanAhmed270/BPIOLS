@@ -25,22 +25,43 @@ const auditRoutes = require('./routes/audit');
 const usersRoutes = require('./routes/users');
 
 const app = express();
-const port = process.env.PORT || 3000;
+
+const port = Number(process.env.PORT) || 3000;
+
+const isProduction = process.env.NODE_ENV === 'production';
+
 const MONGO_URI =
-  process.env.MONGO_URI || 'mongodb://localhost:27017/billing_system';
+  process.env.MONGO_URI ||
+  (isProduction
+    ? null
+    : 'mongodb://localhost:27017/billing_system');
 
 const DRAFT_IDLE_TIMEOUT_MS =
-  parseInt(process.env.DRAFT_IDLE_TIMEOUT_MS) || 15 * 60 * 1000;
+  parseInt(process.env.DRAFT_IDLE_TIMEOUT_MS, 10) ||
+  15 * 60 * 1000;
+
 const DRAFT_SWEEP_INTERVAL_MS =
-  parseInt(process.env.DRAFT_SWEEP_INTERVAL_MS) || 60 * 1000;
+  parseInt(process.env.DRAFT_SWEEP_INTERVAL_MS, 10) ||
+  60 * 1000;
+
+if (isProduction && !MONGO_URI) {
+  logger.error(
+    'MONGO_URI is required when NODE_ENV=production'
+  );
+  process.exit(1);
+}
 
 app.use(cors(corsOptions));
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
 app.use(
   pinoHttp({
     logger,
-    autoLogging: { ignore: (req) => req.url === '/dashboard/load' },
+    autoLogging: {
+      ignore: (req) => req.url === '/dashboard/load',
+    },
   })
 );
 
@@ -49,7 +70,9 @@ app.use('/auth', authRoutes);
 if (process.env.ENABLE_EXPORTS !== 'false') {
   app.use('/api/export', exportRoutes);
 } else {
-  logger.info('Export module disabled (ENABLE_EXPORTS=false)');
+  logger.info(
+    'Export module disabled (ENABLE_EXPORTS=false)'
+  );
 }
 
 if (process.env.ENABLE_OFFLINE_SYNC === 'true') {
@@ -69,30 +92,43 @@ app.use('/', auditRoutes);
 app.use('/', usersRoutes);
 
 app.use(['/api', '/auth'], (req, res) => {
-  res.status(404).json({ success: false, message: 'Not found.' });
+  res.status(404).json({
+    success: false,
+    message: 'Not found.',
+  });
 });
 
-const frontendDist = path.join(__dirname, 'frontend', 'dist');
+const frontendDist = path.join(
+  __dirname,
+  'frontend',
+  'dist'
+);
 
 if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
   app.use(express.static(frontendDist));
 
   app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(frontendDist, 'index.html'));
+    res.sendFile(
+      path.join(frontendDist, 'index.html')
+    );
   });
 } else {
   logger.warn(
     'frontend/dist not found — run `npm run build` inside /frontend to serve the React app from this server. ' +
-    'API routes still work; only the UI is unavailable until it is built.'
+      'API routes still work; only the UI is unavailable until it is built.'
   );
 }
 
 app.use(errorHandler);
 
 async function sweepAbandonedDrafts() {
-  if (mongoose.connection.readyState !== 1) return;
+  if (mongoose.connection.readyState !== 1) {
+    return;
+  }
 
-  const cutoff = new Date(Date.now() - DRAFT_IDLE_TIMEOUT_MS);
+  const cutoff = new Date(
+    Date.now() - DRAFT_IDLE_TIMEOUT_MS
+  );
 
   const stale = await PendingBill.find({
     status: 'active',
@@ -110,7 +146,9 @@ async function sweepAbandonedDrafts() {
               reserved: { $gte: it.quantity },
             },
             {
-              $inc: { reserved: -it.quantity },
+              $inc: {
+                reserved: -it.quantity,
+              },
             }
           )
         )
@@ -144,7 +182,9 @@ async function sweepAbandonedDrafts() {
 setInterval(() => {
   sweepAbandonedDrafts().catch((err) =>
     logger.error(
-      { err: err.message },
+      {
+        err: err.message,
+      },
       'Draft sweep tick failed'
     )
   );
@@ -153,6 +193,7 @@ setInterval(() => {
 async function startServer() {
   try {
     await mongoose.connect(MONGO_URI);
+
     logger.info('MongoDB connected');
 
     try {
@@ -161,20 +202,33 @@ async function startServer() {
       });
     } catch (err) {
       logger.warn(
-        { err: err.message },
+        {
+          err: err.message,
+        },
         'MongoDB does not appear to be running as a replica set — order checkout (transactions) will fail. ' +
-        'For local dev: run mongod with --replSet rs0, then run rs.initiate() once in mongosh.'
+          'For local dev: run mongod with --replSet rs0, then run rs.initiate() once in mongosh.'
       );
     }
 
     app.listen(port, '0.0.0.0', () => {
-      logger.info({ port }, 'Server started');
+      logger.info(
+        {
+          port,
+          environment: process.env.NODE_ENV || 'development',
+        },
+        'Server started'
+      );
     });
   } catch (err) {
-    logger.error({ err }, 'MongoDB connection failed');
+    logger.error(
+      {
+        err,
+      },
+      'MongoDB connection failed'
+    );
+
     process.exit(1);
   }
 }
 
 startServer();
-
