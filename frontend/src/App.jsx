@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './lib/AuthContext';
@@ -19,6 +19,9 @@ import Reports from './pages/Reports';
 import AuditLog from './pages/AuditLog';
 import Users from './pages/Users';
 
+const Router =
+  import.meta.env.MODE === 'electron' ? HashRouter : BrowserRouter;
+
 export default function App() {
   // Stage 11 — starts the background flush loop for any offline sales
   // queued in IndexedDB. No-op entirely when VITE_ENABLE_OFFLINE_SYNC
@@ -35,9 +38,11 @@ export default function App() {
         <Toaster richColors position="top-right" />
         <NetworkStatusBanner />
         <SyncOverlay />
-        <BrowserRouter>
+
+        <Router>
           <Routes>
             <Route path="/" element={<Login />} />
+
             <Route
               path="/dashboard"
               element={
@@ -46,6 +51,7 @@ export default function App() {
                 </AdminRoute>
               }
             />
+
             <Route
               path="/billing"
               element={
@@ -54,6 +60,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/products"
               element={
@@ -62,6 +69,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/customers"
               element={
@@ -70,6 +78,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/suppliers"
               element={
@@ -78,6 +87,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/orders"
               element={
@@ -86,6 +96,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/reports"
               element={
@@ -94,6 +105,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/audit-log"
               element={
@@ -102,6 +114,7 @@ export default function App() {
                 </AdminRoute>
               }
             />
+
             <Route
               path="/workers"
               element={
@@ -111,7 +124,7 @@ export default function App() {
               }
             />
           </Routes>
-        </BrowserRouter>
+        </Router>
       </ConfirmProvider>
     </AuthProvider>
   );
