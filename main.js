@@ -51,6 +51,13 @@ if (isProduction && !MONGO_URI) {
   process.exit(1);
 }
 
+if (isProduction && !process.env.JWT_SECRET) {
+  logger.error(
+    'JWT_SECRET is required when NODE_ENV=production'
+  );
+  process.exit(1);
+}
+
 app.use(cors(corsOptions));
 
 app.use(express.urlencoded({ extended: true }));
@@ -64,6 +71,16 @@ app.use(
     },
   })
 );
+
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: 'ok',
+    service: 'bpiols-backend',
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
 
 app.use('/auth', authRoutes);
 
@@ -232,3 +249,26 @@ async function startServer() {
 }
 
 startServer();
+async function shutdown(signal) {
+  logger.info({ signal }, 'Shutdown signal received');
+
+  try {
+    await mongoose.connection.close();
+    logger.info('MongoDB connection closed');
+    process.exit(0);
+  } catch (err) {
+    logger.error(
+      { err },
+      'Error while closing MongoDB connection'
+    );
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  shutdown('SIGINT');
+});
