@@ -25,7 +25,7 @@ const auditRoutes = require('./routes/audit');
 const usersRoutes = require('./routes/users');
 
 const app = express();
-const port = process.env.PORT || 5173;
+const port = process.env.PORT || 3000;
 const MONGO_URI =
   process.env.MONGO_URI || 'mongodb://localhost:27017/billing_system';
 
@@ -83,7 +83,7 @@ if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
 } else {
   logger.warn(
     'frontend/dist not found — run `npm run build` inside /frontend to serve the React app from this server. ' +
-      'API routes still work; only the UI is unavailable until it is built.'
+    'API routes still work; only the UI is unavailable until it is built.'
   );
 }
 
@@ -163,11 +163,11 @@ async function startServer() {
       logger.warn(
         { err: err.message },
         'MongoDB does not appear to be running as a replica set — order checkout (transactions) will fail. ' +
-          'For local dev: run mongod with --replSet rs0, then run rs.initiate() once in mongosh.'
+        'For local dev: run mongod with --replSet rs0, then run rs.initiate() once in mongosh.'
       );
     }
 
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       logger.info({ port }, 'Server started');
     });
   } catch (err) {
