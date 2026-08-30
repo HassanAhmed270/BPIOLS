@@ -81,7 +81,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-
 app.use('/auth', authRoutes);
 
 if (process.env.ENABLE_EXPORTS !== 'false') {
@@ -231,7 +230,8 @@ async function startServer() {
       logger.info(
         {
           port,
-          environment: process.env.NODE_ENV || 'development',
+          environment:
+            process.env.NODE_ENV || 'development',
         },
         'Server started'
       );
@@ -248,19 +248,26 @@ async function startServer() {
   }
 }
 
-startServer();
 async function shutdown(signal) {
-  logger.info({ signal }, 'Shutdown signal received');
+  logger.info(
+    { signal },
+    'Shutdown signal received'
+  );
 
   try {
     await mongoose.connection.close();
+
     logger.info('MongoDB connection closed');
+
     process.exit(0);
   } catch (err) {
     logger.error(
-      { err },
+      {
+        err,
+      },
       'Error while closing MongoDB connection'
     );
+
     process.exit(1);
   }
 }
@@ -272,3 +279,5 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   shutdown('SIGINT');
 });
+
+startServer();
