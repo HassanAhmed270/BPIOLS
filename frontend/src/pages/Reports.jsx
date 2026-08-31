@@ -44,10 +44,10 @@ export default function Reports() {
       <Sidebar />
       <div className="flex-1 flex flex-col">
         <Topbar title="Reports" />
-        <main className="p-4 md:p-6 space-y-6 overflow-y-auto">
+        <main className="p-4 @min-[768px]:p-6 space-y-6 overflow-y-auto">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-2xl sm:text-3xl font-semibold text-brand">Export data</h2>
+              <h2 className="text-2xl @min-[640px]:text-3xl font-semibold text-brand">Export data</h2>
               <p className="text-gray-600">Download CSV or PDF reports for sales, refunds, losses, credit, and payables.</p>
             </div>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -67,7 +67,7 @@ export default function Reports() {
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 @min-[768px]:grid-cols-2 gap-6">
             {EXPORTS.map((e) => (
               <div key={e.type} className="p-5 bg-white rounded-lg shadow flex flex-col justify-between">
                 <div>

@@ -27,13 +27,13 @@ export default function Login() {
   return (
     <div className="min-h-screen w-screen flex items-center justify-center bg-linear-to-br from-brand via-[#0a6ea6] to-[#e6f2f9] relative px-4 py-10">
       <div className="absolute inset-0 grid grid-rows-2 -z-0">
-        <div className="bg-brand flex justify-center px-4 sm:px-10 text-center">
-          <h1 className="text-3xl sm:text-4xl md:text-5xl mt-14 sm:mt-20 font-extrabold text-white">Billing Management</h1>
+        <div className="bg-brand flex justify-center px-4 @min-[640px]:px-10 text-center">
+          <h1 className="text-3xl @min-[640px]:text-4xl @min-[768px]:text-5xl mt-14 @min-[640px]:mt-20 font-extrabold text-white">Billing Management</h1>
         </div>
         <div className="bg-[#f4f9fc]" />
       </div>
 
-      <div className="relative bg-white shadow-2xl rounded-2xl w-full max-w-sm sm:max-w-md p-6 sm:p-8 z-10">
+      <div className="relative bg-white shadow-2xl rounded-2xl w-full max-w-sm @min-[640px]:max-w-md p-6 @min-[640px]:p-8 z-10">
         <div className="text-center mb-6">
           <h2 className="text-3xl font-extrabold text-brand">Login</h2>
           <p className="text-gray-500 text-sm">Access your account</p>

@@ -246,20 +246,20 @@ useEffect(() => {
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Topbar title="Supplier Management" />
-        <div className="p-4 md:p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 @min-[768px]:p-6 overflow-y-auto flex-1 space-y-6">
           <input
             type="text"
             placeholder="Search suppliers..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border rounded px-3 py-2 w-full sm:w-64"
+            className="border rounded px-3 py-2 w-full @min-[640px]:w-64"
           />
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
           <div className="bg-white border rounded-lg w-full">
-            <div className="flex flex-col lg:flex-row">
-              <div className={`w-full ${isAdmin ? 'lg:w-2/3' : ''} flex flex-col overflow-x-auto`}>
+            <div className="flex flex-col @min-[1024px]:flex-row">
+              <div className={`w-full ${isAdmin ? '@min-[1024px]:w-2/3' : ''} flex flex-col overflow-x-auto`}>
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b bg-gray-100">
@@ -387,7 +387,7 @@ useEffect(() => {
               </div>
 
               {isAdmin && (
-              <div className="w-full lg:w-1/3 p-4 sm:p-6 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300 lg:overflow-y-auto">
+              <div className="w-full @min-[1024px]:w-1/3 p-4 @min-[640px]:p-6 border-t-4 @min-[1024px]:border-t-0 @min-[1024px]:border-l-4 border-gray-300 @min-[1024px]:overflow-y-auto">
                 <h2 className="text-xl flex justify-center text-blue-600 font-bold mb-4">Add Supplier</h2>
                 <form onSubmit={handleAddSupplier} className="space-y-3 text-sm">
                   <input
@@ -436,7 +436,7 @@ useEffect(() => {
 
           <div className="bg-white border rounded-lg p-6">
             <h2 className="text-xl text-brand-green font-bold mb-4">Record a Purchase (restocks the product)</h2>
-            <form onSubmit={handleRecordPurchase} className="grid grid-cols-1 md:grid-cols-6 gap-3 text-sm items-end">
+            <form onSubmit={handleRecordPurchase} className="grid grid-cols-1 @min-[768px]:grid-cols-6 gap-3 text-sm items-end">
               <div>
                 <label className="block mb-1 font-medium">Supplier</label>
                 <select
@@ -523,7 +523,7 @@ useEffect(() => {
                   className="border rounded px-3 py-2 w-full"
                 />
               </div>
-              <div className="md:col-span-6">
+              <div className="@min-[768px]:col-span-6">
                 <button type="submit" className="px-4 py-2 bg-brand-green text-white rounded hover:bg-green-700">
                   Record Purchase
                 </button>

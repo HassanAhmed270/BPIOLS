@@ -36,10 +36,10 @@ export default function Dashboard() {
       <Sidebar />
       <div className="flex-1 flex flex-col">
         <Topbar title="Dashboard" />
-        <main className="p-4 md:p-6 space-y-6 overflow-y-auto">
+        <main className="p-4 @min-[768px]:p-6 space-y-6 overflow-y-auto">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-2xl sm:text-3xl font-semibold text-brand">Welcome back, {username}!</h2>
+              <h2 className="text-2xl @min-[640px]:text-3xl font-semibold text-brand">Welcome back, {username}!</h2>
               <p className="text-gray-600">Here's a quick overview of your business {RANGE_LABEL[range]}.</p>
             </div>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -59,7 +59,7 @@ export default function Dashboard() {
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 @min-[640px]:grid-cols-2 @min-[768px]:grid-cols-5 gap-4 @min-[640px]:gap-6">
             <StatCard
               label="Total Sales"
               value={dashboard ? formatMoney(dashboard.overallSales) : '--'}
@@ -93,7 +93,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 @min-[640px]:grid-cols-2 @min-[768px]:grid-cols-5 gap-4 @min-[640px]:gap-6">
             <StatCard
               label="Refunded Orders"
               value={dashboard ? dashboard.refundedOrders : '--'}
@@ -132,7 +132,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow overflow-x-auto">
+          <div className="p-4 @min-[640px]:p-6 bg-white rounded-lg shadow overflow-x-auto">
             <h3 className="font-medium text-lg mb-4 text-brand">Customer Sales ({RANGE_LABEL[range]})</h3>
             <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
               <thead className="bg-brand text-white">
@@ -160,7 +160,7 @@ export default function Dashboard() {
             </table>
           </div>
 
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow overflow-x-auto">
+          <div className="p-4 @min-[640px]:p-6 bg-white rounded-lg shadow overflow-x-auto">
             <h3 className="font-medium text-lg mb-4 text-brand-green">Product Sales ({RANGE_LABEL[range]})</h3>
             <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
               <thead className="bg-brand-green text-white">

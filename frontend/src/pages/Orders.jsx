@@ -298,13 +298,13 @@ export default function Orders() {
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Topbar title="Orders" />
-        <div className="p-4 md:p-6 overflow-y-auto flex-1">
+        <div className="p-4 @min-[768px]:p-6 overflow-y-auto flex-1">
           <input
             type="text"
             placeholder="Search by order ID or customer..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border rounded px-3 py-2 w-full sm:w-72 mb-4"
+            className="border rounded px-3 py-2 w-full @min-[640px]:w-72 mb-4"
           />
           {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
           {!isAdmin && <p className="text-xs text-gray-500 mb-4">You're viewing orders read-only — editing and refunds are admin-only.</p>}
@@ -352,7 +352,7 @@ export default function Orders() {
                             ) : !detail ? (
                               <p className="text-red-500 text-sm">Could not load this order.</p>
                             ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                              <div className="grid grid-cols-1 @min-[768px]:grid-cols-2 gap-6 text-sm">
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-center">
                                     <h3 className="font-bold text-brand">Details</h3>

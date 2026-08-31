@@ -776,10 +776,10 @@ export default function Billing() {
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 pl-14 pr-4 py-4 md:p-6 overflow-y-auto relative">
+      <main className="flex-1 pl-14 pr-4 py-4 @min-[768px]:p-6 overflow-y-auto relative">
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-brand">Creating Invoice</h1>
+            <h1 className="text-2xl @min-[640px]:text-3xl @min-[768px]:text-4xl font-bold text-brand">Creating Invoice</h1>
             {webUSBSupported && (
               <button
                 onClick={handleConnectPrinter}
@@ -791,7 +791,7 @@ export default function Billing() {
             <select
               value={showCustomerForm ? 'New Customer' : customer}
               onChange={(e) => handleCustomerSelect(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 w-full sm:w-52 focus:ring-2 focus:ring-brand focus:outline-none"
+              className="border border-gray-300 rounded-lg px-3 py-2 w-full @min-[640px]:w-52 focus:ring-2 focus:ring-brand focus:outline-none"
             >
               <option value="unknown">Select Customer</option>
               <option value={WALKIN_CUSTOMER}>🚶 Walk-in / Unknown</option>
@@ -811,8 +811,8 @@ export default function Billing() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:h-[600px]">
-            <div className="md:col-span-2 bg-white rounded-lg shadow p-4 md:overflow-y-auto">
+          <div className="grid grid-cols-1 @min-[768px]:grid-cols-3 gap-6 @min-[768px]:h-[600px]">
+            <div className="@min-[768px]:col-span-2 bg-white rounded-lg shadow p-4 @min-[768px]:overflow-y-auto">
               <input
                 type="text"
                 placeholder="Search Products"
@@ -862,7 +862,7 @@ export default function Billing() {
             </div>
 
             {view === 'add' ? (
-              <div className="md:overflow-y-auto bg-white rounded-lg shadow p-4 space-y-3">
+              <div className="@min-[768px]:overflow-y-auto bg-white rounded-lg shadow p-4 space-y-3">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-medium text-lg text-brand">Add Product</h3>
                   {billId && <h3><b className="text-brand-green">Bill ID:</b> <span className="font-semibold text-lg">{billId}</span></h3>}
@@ -959,7 +959,7 @@ export default function Billing() {
                 </div>
               </div>
             ) : (
-              <div className="md:overflow-y-auto bg-white rounded-lg shadow p-4 space-y-3">
+              <div className="@min-[768px]:overflow-y-auto bg-white rounded-lg shadow p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <h3 className="font-medium text-lg text-brand">Bill Summary</h3>
                   <h3><b className="text-brand-green">Cashier:</b> <span className="font-semibold text-lg text-brand">{username}</span></h3>

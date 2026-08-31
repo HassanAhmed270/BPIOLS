@@ -86,12 +86,12 @@ export default function Users() {
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Topbar title="Workers" />
-        <div className="p-4 md:p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 @min-[768px]:p-6 overflow-y-auto flex-1 space-y-6">
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
           <div className="bg-white border rounded-lg w-full">
-            <div className="flex flex-col lg:flex-row">
-              <div className="w-full lg:w-2/3 overflow-x-auto">
+            <div className="flex flex-col @min-[1024px]:flex-row">
+              <div className="w-full @min-[1024px]:w-2/3 overflow-x-auto">
                 <table className="w-full min-w-[480px] text-sm">
                   <thead>
                     <tr className="border-b bg-gray-100">
@@ -139,7 +139,7 @@ export default function Users() {
                 </table>
               </div>
 
-              <div className="w-full lg:w-1/3 p-4 sm:p-6 border-t-4 lg:border-t-0 lg:border-l-4 border-gray-300">
+              <div className="w-full @min-[1024px]:w-1/3 p-4 @min-[640px]:p-6 border-t-4 @min-[1024px]:border-t-0 @min-[1024px]:border-l-4 border-gray-300">
                 <h2 className="text-xl flex justify-center text-blue-600 font-bold mb-4">Add Worker</h2>
                 <form onSubmit={handleCreate} className="space-y-3 text-sm">
                   <input

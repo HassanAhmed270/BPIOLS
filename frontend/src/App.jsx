@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import SyncOverlay from './components/SyncOverlay';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
+import AppCanvas from './components/AppCanvas';
 import { startOfflineSyncWatcher } from './lib/offlineSync';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -33,99 +34,101 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <ConfirmProvider>
-        <Toaster richColors position="top-right" />
-        <NetworkStatusBanner />
-        <SyncOverlay />
+    <AppCanvas>
+      <AuthProvider>
+        <ConfirmProvider>
+          <Toaster richColors position="top-right" />
+          <NetworkStatusBanner />
+          <SyncOverlay />
 
-        <Router>
-          <Routes>
-            <Route path="/" element={<Login />} />
+          <Router>
+            <Routes>
+              <Route path="/" element={<Login />} />
 
-            <Route
-              path="/dashboard"
-              element={
-                <AdminRoute>
-                  <Dashboard />
-                </AdminRoute>
-              }
-            />
+              <Route
+                path="/dashboard"
+                element={
+                  <AdminRoute>
+                    <Dashboard />
+                  </AdminRoute>
+                }
+              />
 
-            <Route
-              path="/billing"
-              element={
-                <ProtectedRoute>
-                  <Billing />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/billing"
+                element={
+                  <ProtectedRoute>
+                    <Billing />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/products"
-              element={
-                <ProtectedRoute>
-                  <Products />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/products"
+                element={
+                  <ProtectedRoute>
+                    <Products />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/customers"
-              element={
-                <ProtectedRoute>
-                  <Customers />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/customers"
+                element={
+                  <ProtectedRoute>
+                    <Customers />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/suppliers"
-              element={
-                <ProtectedRoute>
-                  <Suppliers />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/suppliers"
+                element={
+                  <ProtectedRoute>
+                    <Suppliers />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/orders"
-              element={
-                <ProtectedRoute>
-                  <Orders />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/orders"
+                element={
+                  <ProtectedRoute>
+                    <Orders />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/reports"
-              element={
-                <ProtectedRoute>
-                  <Reports />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute>
+                    <Reports />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route
-              path="/audit-log"
-              element={
-                <AdminRoute>
-                  <AuditLog />
-                </AdminRoute>
-              }
-            />
+              <Route
+                path="/audit-log"
+                element={
+                  <AdminRoute>
+                    <AuditLog />
+                  </AdminRoute>
+                }
+              />
 
-            <Route
-              path="/workers"
-              element={
-                <AdminRoute>
-                  <Users />
-                </AdminRoute>
-              }
-            />
-          </Routes>
-        </Router>
-      </ConfirmProvider>
-    </AuthProvider>
+              <Route
+                path="/workers"
+                element={
+                  <AdminRoute>
+                    <Users />
+                  </AdminRoute>
+                }
+              />
+            </Routes>
+          </Router>
+        </ConfirmProvider>
+      </AuthProvider>
+    </AppCanvas>
   );
 }
