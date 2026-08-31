@@ -1,12 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { subscribeAutoSync, isAutoSyncing } from '../lib/offlineSync';
+
+const SHOW_DELAY_MS = 400; // only show the overlay if a sync takes longer than this
 
 export default function SyncOverlay() {
   const [syncing, setSyncing] = useState(isAutoSyncing());
+  const [visible, setVisible] = useState(false);
+  const timerRef = useRef(null);
 
   useEffect(() => subscribeAutoSync(setSyncing), []);
 
-  if (!syncing) return null;
+  useEffect(() => {
+    if (syncing) {
+      // don't show immediately — wait to see if this is a real, longer sync
+      timerRef.current = setTimeout(() => setVisible(true), SHOW_DELAY_MS);
+    } else {
+      clearTimeout(timerRef.current);
+      setVisible(false);
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [syncing]);
+
+  if (!visible) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
