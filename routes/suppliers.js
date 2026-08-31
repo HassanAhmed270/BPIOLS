@@ -12,7 +12,7 @@ const { getLatestSellingPrice } = require('../lib/pricing');
 const { createBatch, generateUniquePurchaseId } = require('../lib/costing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { logAudit } = require('../lib/auditLog');
-const { isValidProductId } = require('../lib/validators');
+const { isValidProductId, isValidEmail, isValidPhone } = require('../lib/validators');
 
 const router = express.Router();
 
