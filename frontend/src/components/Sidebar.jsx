@@ -14,7 +14,13 @@ const links = [
 
 const adminOnlyLinks = [
   { to: '/dashboard', label: 'Home' },
+  { to: '/billing', label: 'Billing' },
+  { to: '/products', label: 'Products' },
+  { to: '/customers', label: 'Customers' },
+  { to: '/suppliers', label: 'Suppliers' },
+  { to: '/orders', label: 'Orders' },
   { to: '/audit-log', label: 'Audit Log' },
+  { to: '/reports', label: 'Reports' },
   { to: '/workers', label: 'Workers' },
 ];
 
@@ -41,7 +47,7 @@ export default function Sidebar() {
 
   const handleLinkClick = () => setOpen(false);
 
-  const visibleLinks = isAdmin ? [...links, ...adminOnlyLinks] : links;
+  const visibleLinks = isAdmin ? [...adminOnlyLinks] : links;
 
   return (
     <>
