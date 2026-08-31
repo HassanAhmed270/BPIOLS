@@ -36,7 +36,7 @@ const purchaseItemSchema = new Schema(
 // purchase's own cash was needed), not that anything was double-counted.
 const purchaseSchema = new Schema(
   {
-    purchaseID: { type: String, required: true, match: /^PUR-\d{4}$/, unique: true },
+    purchaseID: { type: String, required: true, match: /^PUR-\d{4}$/ },
     date: { type: Date, default: Date.now },
     totalAmount: { type: Number, required: true, min: 0 },
     amountPaid: { type: Number, required: true, min: 0, default: 0 },
@@ -47,7 +47,6 @@ const purchaseSchema = new Schema(
   },
   { _id: false }
 );
-
 const supplierSchema = new Schema({
   // Stage 3: evaluated for an index alongside Order.orderDate/customerName
   // and Product.category — `unique: true` below already creates a
