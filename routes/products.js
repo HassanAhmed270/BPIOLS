@@ -66,12 +66,12 @@ router.get('/api/products', requireAuth, asyncHandler(async (req, res) => {
 
   const filter = search
     ? {
-        $or: [
-          { productID: { $regex: escapeRegex(search), $options: 'i' } },
-          { productName: { $regex: escapeRegex(search), $options: 'i' } },
-          { category: { $regex: escapeRegex(search), $options: 'i' } },
-        ],
-      }
+      $or: [
+        { productID: { $regex: escapeRegex(search), $options: 'i' } },
+        { productName: { $regex: escapeRegex(search), $options: 'i' } },
+        { category: { $regex: escapeRegex(search), $options: 'i' } },
+      ],
+    }
     : {};
 
   const data = await Product.find(
@@ -138,58 +138,135 @@ router.get('/api/products/low-stock', requireAuth, requireAdmin, asyncHandler(as
 // specific actions like edits/refunds in a later stage.)
 
 router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const { productId, productName, category, price, stock, supplierId, lowStockThreshold, cost } = req.body;
+  const {
+    productId,
+    productName,
+    category,
+    price,
+    stock,
+    supplierId,
+    lowStockThreshold,
+    cost
+  } = req.body;
 
   if (productId && !isValidProductId(productId)) {
-    return res.status(400).json({ success: false, message: 'Product ID must look like #0001.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Product ID must look like #0001.'
+    });
   }
+
   if (!productName || !productName.trim()) {
-    return res.status(400).json({ success: false, message: 'Product name is required.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Product name is required.'
+    });
   }
+
+  // Normalize product name:
+  // - trim leading/trailing whitespace
+  // - collapse multiple spaces into one
+  // Example: "  Coca   Cola  " -> "Coca Cola"
+  const normalizedProductName = productName.trim().replace(/\s+/g, ' ');
 
   const submittedPrice = roundMoney(price);
   const threshold = parseThreshold(lowStockThreshold);
-  const existingProduct = productId ? await Product.findOne({ productID: productId }) : null;
+  const existingProduct = productId
+    ? await Product.findOne({ productID: productId })
+    : null;
+
+  // Prevent duplicate product names.
+  // Comparison is case-insensitive and ignores leading/trailing
+  // whitespace and repeated internal whitespace.
+  const duplicateProduct = await Product.findOne({
+    productName: new RegExp(
+      `^${escapeRegex(normalizedProductName).replace(/ /g, '\\s+')}$`,
+      'i'
+    )
+  });
+
+  // During an update, allow the product to keep its own current name.
+  if (
+    duplicateProduct &&
+    (
+      !existingProduct ||
+      duplicateProduct._id.toString() !== existingProduct._id.toString()
+    )
+  ) {
+    return res.status(409).json({
+      success: false,
+      message: `A product with the name "${duplicateProduct.productName}" already exists.`
+    });
+  }
 
   // Supplier is only ever set at creation (declarative, informational) —
   // Update Product no longer accepts or changes it; that field belongs to
   // Add Product only. Actual restocking (real supplier or self-buy) goes
   // through Add Stock / Suppliers > Record a Purchase, not this form.
   let resolvedSupplier = { ok: true, value: null };
+
   if (!existingProduct) {
     resolvedSupplier = await resolveSupplierId(supplierId);
+
     if (!resolvedSupplier.ok) {
-      return res.status(400).json({ success: false, message: 'Invalid supplier selected.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid supplier selected.'
+      });
     }
   }
+
   // Stage 7 (final.md): a new product's cost is required and always
   // becomes a NoSupplier-tagged StockBatch — see the create branch below.
   // Update path is unaffected (existingProduct truthy skips this).
-  if (!existingProduct && (!Number.isFinite(Number(cost)) || Number(cost) < 0)) {
-    return res.status(400).json({ success: false, message: 'Cost is required.' });
+  if (
+    !existingProduct &&
+    (!Number.isFinite(Number(cost)) || Number(cost) < 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Cost is required.'
+    });
   }
+
   // Stage 14: snapshot before any mutation, for the audit entry below.
-  const beforeSnapshot = existingProduct ? existingProduct.toObject() : null;
+  const beforeSnapshot = existingProduct
+    ? existingProduct.toObject()
+    : null;
 
   if (existingProduct) {
     // final.md Stage 9: Update Product no longer touches stock at all —
     // that's Add Stock/Deduct Stock's job now (see the two routes below).
     // supplierID is intentionally left untouched here — see note above.
-    existingProduct.productName = productName;
+    existingProduct.productName = normalizedProductName;
     existingProduct.category = category;
-    if (lowStockThreshold !== undefined) existingProduct.lowStockThreshold = threshold;
+
+    if (lowStockThreshold !== undefined) {
+      existingProduct.lowStockThreshold = threshold;
+    }
 
     // Only record a new price-history entry if the price actually moved —
     // this is what makes getLatestSellingPrice() meaningful instead of the
     // array just growing with the same number forever.
-    const latestPrice = roundMoney(getLatestSellingPrice(existingProduct));
+    const latestPrice = roundMoney(
+      getLatestSellingPrice(existingProduct)
+    );
+
     if (submittedPrice > 0 && submittedPrice !== latestPrice) {
-      existingProduct.sellingPriceHistory.push({ price: submittedPrice, date: new Date() });
+      existingProduct.sellingPriceHistory.push({
+        price: submittedPrice,
+        date: new Date()
+      });
     }
+
     await existingProduct.save();
+
     await logAudit({
       action: 'product.updated',
-      actor: { username: req.user.username, role: req.user.role },
+      actor: {
+        username: req.user.username,
+        role: req.user.role
+      },
       targetType: 'product',
       targetId: productId,
       before: beforeSnapshot,
@@ -197,18 +274,34 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
     });
   } else {
     const generatedProductId = await nextProductId();
-    const parsedStock = isNaN(parseInt(stock)) ? 0 : parseInt(stock);
+    const parsedStock = isNaN(parseInt(stock))
+      ? 0
+      : parseInt(stock);
+
     const roundedCost = roundMoney(cost);
+
     const newProduct = new Product({
       productID: generatedProductId,
-      productName,
+      productName: normalizedProductName,
       category,
-      sellingPriceHistory: [{ price: submittedPrice }],
+      sellingPriceHistory: [
+        {
+          price: submittedPrice
+        }
+      ],
+
       // Stage 7: a real cost basis from the moment the product exists,
       // same buyingPriceHistory shape POST /supplier/purchase writes —
       // supplierID: null marks it self-purchased (NoSupplier), matching
       // the StockBatch created below.
-      buyingPriceHistory: [{ price: roundedCost, date: new Date(), supplierID: null }],
+      buyingPriceHistory: [
+        {
+          price: roundedCost,
+          date: new Date(),
+          supplierID: null
+        }
+      ],
+
       quantity: parsedStock,
       reserved: 0,
       lowStockThreshold: threshold,
@@ -221,12 +314,16 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
     // StockBatch's own quantityPurchased min: 1). Generated up front,
     // same as POST /supplier/purchase, since it's not itself part of the
     // transactional write.
-    const purchaseID = parsedStock > 0 ? await generateUniquePurchaseId() : null;
+    const purchaseID = parsedStock > 0
+      ? await generateUniquePurchaseId()
+      : null;
 
     const session = await mongoose.startSession();
+
     try {
       await session.withTransaction(async () => {
         await newProduct.save({ session });
+
         if (parsedStock > 0) {
           await createBatch({
             productID: generatedProductId,
@@ -244,16 +341,27 @@ router.post('/api/product', requireAuth, requireAdmin, asyncHandler(async (req, 
 
     await logAudit({
       action: 'product.created',
-      actor: { username: req.user.username, role: req.user.role },
+      actor: {
+        username: req.user.username,
+        role: req.user.role
+      },
       targetType: 'product',
       targetId: generatedProductId,
       before: null,
       after: newProduct.toObject(),
     });
-    return res.status(200).json({ success: true, message: 'Product saved successfully', productId: generatedProductId });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product saved successfully',
+      productId: generatedProductId
+    });
   }
 
-  res.status(200).json({ success: true, message: 'Product saved successfully' });
+  res.status(200).json({
+    success: true,
+    message: 'Product saved successfully'
+  });
 }));
 
 // final.md Stage 9 — dedicated restock action, replacing Update

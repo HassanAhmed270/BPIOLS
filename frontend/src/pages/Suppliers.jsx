@@ -120,9 +120,25 @@ export default function Suppliers() {
     }
   };
 
-  useEffect(() => {
-    loadDropdownData();
-  }, []);
+useEffect(() => {
+  loadDropdownData();
+}, []);
+
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('action') !== 'restock') return;
+
+  const productId = params.get('productId');
+  if (!productId) return;
+
+  setPurchaseForm((prev) => ({
+    ...prev,
+    productId,
+  }));
+
+  window.history.replaceState({}, '', '/suppliers');
+}, []);
 
   useEffect(() => {
     loadSuppliers();
