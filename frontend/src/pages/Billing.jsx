@@ -5,7 +5,8 @@ import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { roundMoney, formatMoney } from '../lib/money';
-import { printReceipt } from '../lib/print';
+import { printReceipt, buildReceiptHtml } from '../lib/print';
+import { SHOP_NAME, SHOP_ADDRESS, SHOP_PHONE } from '../lib/shopInfo';
 import { isWebUSBSupported, getPairedPrinter, pairThermalPrinter, tryThermalPrint } from '../lib/thermalPrint';
 import { isOfflineSyncEnabled, enqueueSale, saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/offlineQueue';
 import { isNetworkError, flushQueue } from '../lib/offlineSync';
@@ -606,29 +607,34 @@ export default function Billing() {
       }
     }
 
-    const rows = Object.entries(billingItems)
-      .map(([key, item]) => {
-        const subtotal = item.unitPrice * item.quantity;
-        const net = roundMoney(subtotal - subtotal * (item.discount / 100));
-        return `<tr><td>${key}</td><td>${item.productCode}</td><td>${item.itemName}</td><td>${formatMoney(item.unitPrice)}</td><td>${item.quantity}</td><td>${formatMoney(subtotal)}</td><td>${item.discount}%</td><td>${formatMoney(net)}</td></tr>`;
-      })
-      .join('');
+    const items = Object.entries(billingItems).map(([, item]) => {
+      const subtotal = item.unitPrice * item.quantity;
+      const net = roundMoney(subtotal - subtotal * (item.discount / 100));
+      const rate = item.quantity > 0 ? net / item.quantity : item.unitPrice;
+      return {
+        itemName: item.itemName,
+        retailLabel: formatMoney(item.unitPrice),
+        rateLabel: formatMoney(rate),
+        qty: item.quantity,
+        totalLabel: formatMoney(net),
+      };
+    });
 
-    const html = `
-      <h2 style="text-align:center;font-weight:bold;font-size:20px;border-bottom:1px solid #ddd;padding-bottom:8px;">Receipt</h2>
-      <div style="margin:8px 0;font-weight:600;">Bill ID: ${billId}</div>
-      ${offline ? '<div style="margin:8px 0;font-weight:700;color:#b45309;">OFFLINE — PENDING SYNC (not yet confirmed)</div>' : ''}
-
-      <table>
-        <thead><tr><th>S.no</th><th>Code</th><th>Product</th><th>Price</th><th>Qty</th><th>Total</th><th>Save</th><th>Net</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${totalDiscount > 0 ? `<div class="totals"><span>Discount</span><span>-${formatMoney(totalDiscount)}</span></div>` : ''}
-      <div class="totals"><span>Grand Total</span><span>${formatMoney(total)}</span></div>
-      <div class="totals"><span>Paid</span><span>${formatMoney(paidNum)}</span></div>
-      <div class="totals"><span>${settlementLabel}</span><span>${settlementAmount}</span></div>
-      <div style="margin-top:8px;">Customer: ${customer}</div>
-    `;
+    const html = buildReceiptHtml({
+      shopName: SHOP_NAME,
+      shopAddress: SHOP_ADDRESS,
+      shopPhone: SHOP_PHONE,
+      billId,
+      offline,
+      customerName: customer === WALKIN_CUSTOMER ? 'Walk-in' : customer,
+      customerAddress: customerDirectory[customer]?.address || '',
+      items,
+      discountLabel: totalDiscount > 0 ? formatMoney(totalDiscount) : null,
+      grandTotalLabel: formatMoney(total),
+      paidLabel: formatMoney(paidNum),
+      settlementLabel,
+      settlementAmountLabel: settlementAmount,
+    });
     printReceipt(html);
   };
 
