@@ -8,7 +8,8 @@ import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
 import { formatMoney } from '../lib/money';
-import { printReceipt } from '../lib/print';
+import { printReceipt, formatReceiptDate, formatReceiptTime } from '../lib/print';
+import { SHOP_NAME, SHOP_ADDRESS, SHOP_PHONE } from '../lib/shopInfo';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 
 const statusBadge = {
@@ -247,11 +248,25 @@ export default function Orders() {
     }
   };
 
+  // Rebuilt to reuse the same narrow, thermal-roll `.receipt` look as the
+  // first bill (Billing.jsx's buildReceiptHtml) — shop header, meta row,
+  // items table, totals-row totals — instead of the old generic bordered
+  // <table>. The edit-history and refunds tables stay as the wider,
+  // unscoped `.edit-history` blocks below the receipt, since that
+  // tabular audit data (multi-column, timestamps, reasons) doesn't fit
+  // an 80mm layout — see print.js's header comment.
   const handlePrintRevised = () => {
     if (!detail) return;
     const { order, refunds } = detail;
-    const rows = order.products
-      .map((p) => `<tr><td>${p.productID}</td><td>${p.quantity}</td><td>${formatMoney(p.amount)}</td><td>${p.discount}%</td></tr>`)
+    const now = new Date();
+    const itemRows = order.products
+      .map((p) => {
+        const rate = p.quantity > 0 ? p.amount / p.quantity : 0;
+        return `
+          <tr><td class="item-name" colspan="5">${p.productID}</td></tr>
+          <tr><td></td><td>${formatMoney(rate)}</td><td>${p.discount > 0 ? `${p.discount}%` : '—'}</td><td>${p.quantity}</td><td>${formatMoney(p.amount)}</td></tr>
+        `;
+      })
       .join('');
     const editRows = (order.editHistory || [])
       .map((e) => {
@@ -279,16 +294,27 @@ export default function Orders() {
       .join('');
 
     printReceipt(`
-      <h2 style="text-align:center;font-weight:bold;font-size:20px;border-bottom:1px solid #ddd;padding-bottom:8px;">
-        Revised Receipt ${order.status === 'refunded' ? '(REFUNDED)' : ''}
-      </h2>
-      <div style="margin:8px 0;font-weight:600;">Order ID: ${order.orderID}</div>
-      <div>Customer: ${order.customerName}</div>
-      <table><thead><tr><th>Code</th><th>Qty</th><th>Amount</th><th>Discount</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="totals"><span>Grand Total</span><span>${formatMoney(order.totalAmount)}</span></div>
-      <div class="totals"><span>Paid</span><span>${formatMoney(order.amountPaid)}</span></div>
-      <div class="totals"><span>Balance Due</span><span>${formatMoney(order.balanceDue)}</span></div>
-      ${editRows ? `<div class="edit-history"><h3>Edit History</h3><table><thead><tr><th>Item</th><th>Qty change</th><th>Action</th><th>By</th><th>When</th><th>Reason</th></tr></thead><tbody>${editRows}</tbody></table></div>` : ''}
+      <div class="receipt">
+        <div class="shop-name">${SHOP_NAME}</div>
+        <div class="shop-line">${SHOP_ADDRESS}</div>
+        <div class="shop-line">Phone: ${SHOP_PHONE}</div>
+        <hr class="sep-solid" />
+        <div class="meta-row"><span>Revised Receipt${order.status === 'refunded' ? ' (REFUNDED)' : ''}</span><span>${formatReceiptDate(now)}</span></div>
+        <div class="meta-row"><span>Order: ${order.orderID}</span><span>${formatReceiptTime(now)}</span></div>
+        <div>Customer Name: ${order.customerName}</div>
+        <hr class="sep" />
+        <table class="items">
+          <thead><tr><th>Item</th><th>Rate</th><th>Disc</th><th>Qty</th><th>Total</th></tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+        <hr class="sep" />
+        <div class="totals-row grand"><span>Grand Total</span><span>${formatMoney(order.totalAmount)}</span></div>
+        <div class="totals-row"><span>Paid</span><span>${formatMoney(order.amountPaid)}</span></div>
+        <div class="totals-row"><span>Balance Due</span><span>${formatMoney(order.balanceDue)}</span></div>
+        <hr class="sep-solid" />
+        <div class="footer">THANK YOU! VISIT AGAIN</div>
+      </div>
+      ${editRows ? `<div class="edit-history"><h3>Edit History</h3><table><thead><tr><th>Item</th><th>Qty change</th><th>Action</th><th>By</th><th>When</th><th>Reason</th><th>Settlement</th></tr></thead><tbody>${editRows}</tbody></table></div>` : ''}
       ${refundRows ? `<div class="edit-history"><h3>Refunds</h3><table><thead><tr><th>Amount</th><th>By</th><th>When</th><th>Reason</th></tr></thead><tbody>${refundRows}</tbody></table></div>` : ''}
     `);
   };
