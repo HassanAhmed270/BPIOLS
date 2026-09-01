@@ -303,6 +303,8 @@ export default function Billing() {
     const releaseAllHeld = () => {
       const token = localStorage.getItem('pos.token');
       Object.values(billingItemsRef.current).forEach((item) => {
+        if (item.offline) return;
+
         fetch('/billing/release', {
           method: 'POST',
           keepalive: true,
@@ -608,18 +610,19 @@ export default function Billing() {
     }
 
     const items = Object.entries(billingItems).map(([, item]) => {
-      const subtotal = item.unitPrice * item.quantity;
-      const net = roundMoney(subtotal - subtotal * (item.discount / 100));
-      const rate = item.quantity > 0 ? net / item.quantity : item.unitPrice;
+      const subtotal = roundMoney(item.unitPrice * item.quantity);
+      const discountAmount = roundMoney(subtotal * (item.discount / 100));
+      const total = roundMoney(subtotal - discountAmount);
+
       return {
         itemName: item.itemName,
         retailLabel: formatMoneyShort(item.unitPrice),
-        rateLabel: formatMoneyShort(rate),
         qty: item.quantity,
-        totalLabel: formatMoneyShort(net),
+        subtotalLabel: formatMoneyShort(subtotal),
+        discountLabel: formatMoneyShort(discountAmount),
+        totalLabel: formatMoneyShort(total),
       };
     });
-
     const html = buildReceiptHtml({
       shopName: SHOP_NAME,
       shopAddress: SHOP_ADDRESS,
@@ -635,9 +638,9 @@ export default function Billing() {
       settlementLabel,
       settlementAmountLabel: settlementAmount,
     });
-    printReceipt(html);
-  };
 
+    printReceipt(html);
+  }
   const handleGenerateBill = async () => {
     const total = grandTotal;
     const paidNum = parseFloat(paid) || 0;
@@ -827,43 +830,43 @@ export default function Billing() {
                 className="border border-gray-300 rounded-lg px-3 py-2 w-full mb-3 focus:ring-2 focus:ring-brand focus:outline-none"
               />
               <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm border border-gray-200 rounded-lg overflow-hidden">
-                <thead className="bg-brand text-white">
-                  <tr>
-                    <th className="text-left p-2">Code</th>
-                    <th className="text-left p-2">Name</th>
-                    <th className="text-left p-2">In Stock</th>
-                    <th className="text-left p-2">Unit Price</th>
-                    <th className="text-left p-2">Stock's Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.length === 0 ? (
-                    <tr><td colSpan={5} className="p-2 text-center text-gray-500">No products available</td></tr>
-                  ) : (
-                    filteredProducts.map((p) => {
-                      const available = p.available ?? p.quantity - (p.reserved || 0);
-                      const lowStock = p.lowStock ?? available <= (p.lowStockThreshold ?? 10);
-                      return (
-                        <tr
-                          key={p.productID}
-                          onClick={() => handleSelectProduct(p)}
-                          className={`cursor-pointer hover:bg-blue-50 ${selectedProductId === p.productID ? 'bg-blue-100' : ''} ${lowStock ? 'bg-red-50' : ''}`}
-                        >
-                          <td className="p-2">{p.productID}</td>
-                          <td className="p-2">{p.productName}</td>
-                          <td className={`p-2 ${lowStock ? 'text-red-700 font-semibold' : ''}`}>
-                            {available}
-                            {lowStock && <span className="ml-1 text-xs font-normal">⚠ low</span>}
-                          </td>
-                          <td className="p-2">{formatMoney(p.price ?? 0)}</td>
-                          <td className="p-2">{formatMoney((p.price ?? 0) * available)}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                <table className="w-full min-w-[560px] text-sm border border-gray-200 rounded-lg overflow-hidden">
+                  <thead className="bg-brand text-white">
+                    <tr>
+                      <th className="text-left p-2">Code</th>
+                      <th className="text-left p-2">Name</th>
+                      <th className="text-left p-2">In Stock</th>
+                      <th className="text-left p-2">Unit Price</th>
+                      <th className="text-left p-2">Stock's Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.length === 0 ? (
+                      <tr><td colSpan={5} className="p-2 text-center text-gray-500">No products available</td></tr>
+                    ) : (
+                      filteredProducts.map((p) => {
+                        const available = p.available ?? p.quantity - (p.reserved || 0);
+                        const lowStock = p.lowStock ?? available <= (p.lowStockThreshold ?? 10);
+                        return (
+                          <tr
+                            key={p.productID}
+                            onClick={() => handleSelectProduct(p)}
+                            className={`cursor-pointer hover:bg-blue-50 ${selectedProductId === p.productID ? 'bg-blue-100' : ''} ${lowStock ? 'bg-red-50' : ''}`}
+                          >
+                            <td className="p-2">{p.productID}</td>
+                            <td className="p-2">{p.productName}</td>
+                            <td className={`p-2 ${lowStock ? 'text-red-700 font-semibold' : ''}`}>
+                              {available}
+                              {lowStock && <span className="ml-1 text-xs font-normal">⚠ low</span>}
+                            </td>
+                            <td className="p-2">{formatMoney(p.price ?? 0)}</td>
+                            <td className="p-2">{formatMoney((p.price ?? 0) * available)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -929,8 +932,8 @@ export default function Billing() {
                             type="button"
                             onClick={() => setItemForm({ ...itemForm, discount: String(pct), discountType: 'preset' })}
                             className={`flex-1 py-1.5 rounded-lg text-sm border ${itemForm.discountType === 'preset' && Number(itemForm.discount) === pct
-                                ? 'bg-brand-green text-white border-brand-green'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-brand-green'
+                              ? 'bg-brand-green text-white border-brand-green'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-brand-green'
                               }`}
                           >
                             {pct}%

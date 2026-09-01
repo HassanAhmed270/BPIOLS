@@ -1,6 +1,10 @@
 export function printReceipt(html) {
   const printWindow = window.open('', '', 'width=420,height=700');
 
+  if (!printWindow) {
+    throw new Error('Unable to open print window. Please allow pop-ups for this site.');
+  }
+
   printWindow.document.write(`
     <html>
       <head>
@@ -130,11 +134,11 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-rate {
-            width: 20%;
+            width: 16%;
           }
 
           .receipt table.items .col-qty {
-            width: 10%;
+            width: 9%;
           }
 
           .receipt table.items .col-subtotal {
@@ -142,11 +146,11 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-disc {
-            width: 18%;
+            width: 15%;
           }
 
           .receipt table.items .col-total {
-            width: 28%;
+            width: 19%;
           }
 
           .receipt table.items th,
@@ -172,17 +176,17 @@ export function printReceipt(html) {
           }
 
           .receipt table.items td.revised-item {
-            text-align: center;
+            text-align: left;
             font-weight: 600;
-          }
-
-          .receipt table.items tbody tr:first-child td {
-            padding-top: 4px;
           }
 
           .receipt table.items td.item-name {
-            text-align: center;
+            text-align: left;
             font-weight: 600;
+            padding-top: 4px;
+          }
+
+          .receipt table.items tbody tr:first-child td {
             padding-top: 4px;
           }
 
@@ -215,6 +219,7 @@ export function printReceipt(html) {
             }
 
             .receipt {
+              width: 100%;
               max-width: 300px;
             }
 
@@ -235,6 +240,7 @@ export function printReceipt(html) {
   printWindow.document.close();
 
   printWindow.onload = () => {
+    printWindow.focus();
     printWindow.print();
     printWindow.onafterprint = () => printWindow.close();
   };
@@ -242,6 +248,20 @@ export function printReceipt(html) {
 
 function pad2(n) {
   return String(n).padStart(2, '0');
+}
+
+function formatReceiptMoney(value) {
+  return String(Math.round(Number(value) || 0));
+}
+
+function formatReceiptDiscount(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return '0%';
+  }
+
+  return `${number.toFixed(2).replace(/\.?0+$/, '')}%`;
 }
 
 export function formatReceiptDate(date) {
@@ -280,14 +300,12 @@ export function buildReceiptHtml({
     .map(
       (item) => `
         <tr>
-          <td class="item-name" colspan="5">${item.itemName}</td>
-        </tr>
-        <tr>
-          <td></td>
-          <td>${item.retailLabel}</td>
-          <td>${item.rateLabel}</td>
+          <td class="item-name">${item.itemName}</td>
+          <td>${formatReceiptMoney(item.retailLabel)}</td>
           <td>${item.qty}</td>
-          <td>${item.totalLabel}</td>
+          <td>${formatReceiptMoney(item.subtotalLabel)}</td>
+          <td>${formatReceiptDiscount(item.discountLabel)}</td>
+          <td>${formatReceiptMoney(item.totalLabel)}</td>
         </tr>
       `
     )
@@ -330,8 +348,9 @@ export function buildReceiptHtml({
         <colgroup>
           <col class="col-item" />
           <col class="col-rate" />
-          <col class="col-disc" />
           <col class="col-qty" />
+          <col class="col-subtotal" />
+          <col class="col-disc" />
           <col class="col-total" />
         </colgroup>
 
@@ -339,8 +358,9 @@ export function buildReceiptHtml({
           <tr>
             <th>Item</th>
             <th>Retail</th>
-            <th>Rate</th>
             <th>Qty</th>
+            <th>Subtotal</th>
+            <th>Discount</th>
             <th>Total</th>
           </tr>
         </thead>
@@ -357,7 +377,7 @@ export function buildReceiptHtml({
           ? `
             <div class="totals-row">
               <span>Discount</span>
-              <span>-${discountLabel}</span>
+              <span>-${formatReceiptMoney(discountLabel)}</span>
             </div>
           `
           : ''
@@ -365,17 +385,17 @@ export function buildReceiptHtml({
 
       <div class="totals-row grand">
         <span>Grand Total</span>
-        <span>${grandTotalLabel}</span>
+        <span>${formatReceiptMoney(grandTotalLabel)}</span>
       </div>
 
       <div class="totals-row">
         <span>Paid</span>
-        <span>${paidLabel}</span>
+        <span>${formatReceiptMoney(paidLabel)}</span>
       </div>
 
       <div class="totals-row">
         <span>${settlementLabel}</span>
-        <span>${settlementAmountLabel}</span>
+        <span>${formatReceiptMoney(settlementAmountLabel)}</span>
       </div>
 
       <hr class="sep-solid" />

@@ -41,17 +41,41 @@ export default function Orders() {
   const [page, setPage] = useState(1);
 
   const [expandedID, setExpandedID] = useState(null);
-  const [detail, setDetail] = useState(null); // { order, refunds } for the expanded row
+  const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const [editForm, setEditForm] = useState({ productID: '', removeQty: '', reason: '' });
-  const [addForm, setAddForm] = useState({ productID: '', quantity: '', reason: '' });
-  const [convertForm, setConvertForm] = useState({ customerName: '', mobileNo: '', email: '', address: '' });
+  const [editForm, setEditForm] = useState({
+    productID: '',
+    removeQty: '',
+    reason: '',
+  });
+
+  const [addForm, setAddForm] = useState({
+    productID: '',
+    quantity: '',
+    reason: '',
+  });
+
+  const [convertForm, setConvertForm] = useState({
+    customerName: '',
+    mobileNo: '',
+    email: '',
+    address: '',
+  });
+
   const [refundReason, setRefundReason] = useState('');
+
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const data = await api.getOrders({ search: debouncedSearch, sortBy, sortDir, page, limit: PAGE_SIZE });
+      const data = await api.getOrders({
+        search: debouncedSearch,
+        sortBy,
+        sortDir,
+        page,
+        limit: PAGE_SIZE,
+      });
+
       setOrders(data.orders || []);
       setTotal(data.total || 0);
       setError('');
@@ -98,13 +122,32 @@ export default function Orders() {
       setDetail(null);
       return;
     }
+
     setExpandedID(orderID);
     setDetail(null);
     setDetailLoading(true);
-    setEditForm({ productID: '', removeQty: '', reason: '' });
-    setAddForm({ productID: '', quantity: '', reason: '' });
-    setConvertForm({ customerName: '', mobileNo: '', email: '', address: '' });
+
+    setEditForm({
+      productID: '',
+      removeQty: '',
+      reason: '',
+    });
+
+    setAddForm({
+      productID: '',
+      quantity: '',
+      reason: '',
+    });
+
+    setConvertForm({
+      customerName: '',
+      mobileNo: '',
+      email: '',
+      address: '',
+    });
+
     setRefundReason('');
+
     try {
       const data = await api.getOrder(orderID);
       setDetail(data);
@@ -119,14 +162,19 @@ export default function Orders() {
   const refreshDetail = async (orderID) => {
     const data = await api.getOrder(orderID);
     setDetail(data);
-    await loadOrders(); // list-row totals/status may have changed too
+    await loadOrders();
   };
 
-  const editWindowOpen = (order) => Date.now() - new Date(order.orderDate).getTime() <= 72 * 60 * 60 * 1000;
+  const editWindowOpen = (order) =>
+    Date.now() - new Date(order.orderDate).getTime() <= 72 * 60 * 60 * 1000;
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    if (!editForm.productID) return toast.error('Select a line item to edit.');
+
+    if (!editForm.productID) {
+      return toast.error('Select a line item to edit.');
+    }
+
     const removeQty = parseInt(editForm.removeQty);
 
     if (isNaN(removeQty) || removeQty < 0) {
@@ -162,8 +210,15 @@ export default function Orders() {
         reason: editForm.reason.trim(),
         settlement: 'credit',
       });
+
       toast.success('Order updated.');
-      setEditForm({ productID: '', removeQty: '', reason: '' });
+
+      setEditForm({
+        productID: '',
+        removeQty: '',
+        reason: '',
+      });
+
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Edit failed: ' + err.message);
@@ -172,17 +227,31 @@ export default function Orders() {
 
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    if (!addForm.productID) return toast.error('Select a product to add.');
+
+    if (!addForm.productID) {
+      return toast.error('Select a product to add.');
+    }
+
     const quantity = parseInt(addForm.quantity);
+
     if (!Number.isInteger(quantity) || quantity <= 0) {
       return toast.error('Enter a valid quantity.');
     }
+
     if (!addForm.reason.trim()) {
       return toast.error('A reason is required.');
     }
-    if (detail.order.products.some((p) => p.productID === addForm.productID)) {
-      return toast.error('This order already has a line for that product — use "Edit a line item" instead.');
+
+    if (
+      detail.order.products.some(
+        (p) => p.productID === addForm.productID
+      )
+    ) {
+      return toast.error(
+        'This order already has a line for that product — use "Edit a line item" instead.'
+      );
     }
+
     try {
       await api.editOrderItem(expandedID, {
         action: 'add',
@@ -190,8 +259,15 @@ export default function Orders() {
         quantity,
         reason: addForm.reason.trim(),
       });
+
       toast.success('Item added to order.');
-      setAddForm({ productID: '', quantity: '', reason: '' });
+
+      setAddForm({
+        productID: '',
+        quantity: '',
+        reason: '',
+      });
+
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Failed to add item: ' + err.message);
@@ -200,9 +276,11 @@ export default function Orders() {
 
   const handleConvertSubmit = async (e) => {
     e.preventDefault();
+
     if (!convertForm.customerName.trim()) {
       return toast.error('Customer name is required.');
     }
+
     try {
       await api.createCustomer({
         customerName: convertForm.customerName.trim(),
@@ -210,9 +288,23 @@ export default function Orders() {
         email: convertForm.email.trim(),
         address: convertForm.address.trim(),
       });
-      await api.convertWalkInOrder(expandedID, convertForm.customerName.trim());
-      toast.success(`Order attached to ${convertForm.customerName.trim()}.`);
-      setConvertForm({ customerName: '', mobileNo: '', email: '', address: '' });
+
+      await api.convertWalkInOrder(
+        expandedID,
+        convertForm.customerName.trim()
+      );
+
+      toast.success(
+        `Order attached to ${convertForm.customerName.trim()}.`
+      );
+
+      setConvertForm({
+        customerName: '',
+        mobileNo: '',
+        email: '',
+        address: '',
+      });
+
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Failed to convert order: ' + err.message);
@@ -221,13 +313,27 @@ export default function Orders() {
 
   const handleRefundSubmit = async (e) => {
     e.preventDefault();
-    // Refund = Cash Back, full order only. No per-item/partial selection —
-    // that's the exchange form's job. Every line on the order, at its
-    // full remaining quantity, goes back.
-    const items = detail.order.products.map((p) => ({ productID: p.productID, quantity: p.quantity }));
-    if (items.length === 0) return toast.error('This order has no items left to refund.');
-    if (!refundReason.trim()) return toast.error('A reason is required.');
-    if (!(await confirm(`Refund the full order ${expandedID} for cash back? This marks the whole order as refunded.`))) return;
+
+    const items = detail.order.products.map((p) => ({
+      productID: p.productID,
+      quantity: p.quantity,
+    }));
+
+    if (items.length === 0) {
+      return toast.error('This order has no items left to refund.');
+    }
+
+    if (!refundReason.trim()) {
+      return toast.error('A reason is required.');
+    }
+
+    if (
+      !(await confirm(
+        `Refund the full order ${expandedID} for cash back? This marks the whole order as refunded.`
+      ))
+    ) {
+      return;
+    }
 
     try {
       const data = await api.refundOrder(expandedID, {
@@ -237,25 +343,25 @@ export default function Orders() {
       });
 
       if (!data?.success || !data?.refund) {
-        throw new Error(data?.message || 'Refund completed but no refund details were returned.');
+        throw new Error(
+          data?.message ||
+            'Refund completed but no refund details were returned.'
+        );
       }
 
-      toast.success(`Cash back processed: ${formatMoney(data.refund.refundAmount)}`);
+      toast.success(
+        `Cash back processed: ${formatMoney(data.refund.refundAmount)}`
+      );
+
       setRefundReason('');
+
       await refreshDetail(expandedID);
     } catch (err) {
       toast.error('Refund failed: ' + err.message);
     }
   };
 
-  // Rebuilt to reuse the same narrow, thermal-roll `.receipt` look as the
-  // first bill (Billing.jsx's buildReceiptHtml) — shop header, meta row,
-  // items table, totals-row totals — instead of the old generic bordered
-  // <table>. The edit-history and refunds tables stay as the wider,
-  // unscoped `.edit-history` blocks below the receipt, since that
-  // tabular audit data (multi-column, timestamps, reasons) doesn't fit
-  // an 80mm layout — see print.js's header comment.
-    const handlePrintRevised = () => {
+  const handlePrintRevised = () => {
     if (!detail) return;
 
     const { order, refunds } = detail;
@@ -270,7 +376,10 @@ export default function Orders() {
         let subtotal = total;
         let discountAmount = 0;
 
-        if (p.discountType === 'percentage' || p.discountType === 'percent') {
+        if (
+          p.discountType === 'percentage' ||
+          p.discountType === 'percent'
+        ) {
           if (discountValue > 0 && discountValue < 100) {
             subtotal = total / (1 - discountValue / 100);
             discountAmount = subtotal - total;
@@ -284,7 +393,10 @@ export default function Orders() {
 
         return `
           <tr>
-            <td class="revised-item">${p.productID}</td>
+            <td class="item-name" colspan="6">${p.productID}</td>
+          </tr>
+          <tr>
+            <td></td>
             <td>${formatMoneyShort(rate)}</td>
             <td>${quantity}</td>
             <td>${formatMoneyShort(subtotal)}</td>
@@ -299,7 +411,9 @@ export default function Orders() {
       .map((e) => {
         const settlementLabel =
           e.settlement === 'credit'
-            ? `Exchange — Store Credit: ${formatMoney(e.creditAmount || 0)}`
+            ? `Exchange — Store Credit: ${formatMoney(
+                e.creditAmount || 0
+              )}`
             : e.settlement === 'cash'
             ? `Cash Back: ${formatMoney(e.creditAmount || 0)}`
             : '—';
@@ -332,7 +446,7 @@ export default function Orders() {
       .join('');
 
     printReceipt(`
-      <div class="receipt revised-receipt">
+      <div class="receipt">
         <div class="shop-name">${SHOP_NAME}</div>
         <div class="shop-line">${SHOP_ADDRESS}</div>
         <div class="shop-line">Phone: ${SHOP_PHONE}</div>
@@ -368,10 +482,10 @@ export default function Orders() {
           <thead>
             <tr>
               <th>Item</th>
-              <th>Rate</th>
+              <th>Retail</th>
               <th>Qty</th>
               <th>Subtotal</th>
-              <th>Disc</th>
+              <th>Discount</th>
               <th>Total</th>
             </tr>
           </thead>
@@ -453,8 +567,10 @@ export default function Orders() {
   return (
     <div className="flex h-screen">
       <Sidebar />
+
       <main className="flex-1 flex flex-col overflow-hidden">
         <Topbar title="Orders" />
+
         <div className="p-4 @min-[768px]:p-6 overflow-y-auto flex-1">
           <input
             type="text"
@@ -463,116 +579,348 @@ export default function Orders() {
             onChange={(e) => setSearch(e.target.value)}
             className="border rounded px-3 py-2 w-full @min-[640px]:w-72 mb-4"
           />
-          {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-          {!isAdmin && <p className="text-xs text-gray-500 mb-4">You're viewing orders read-only — editing and refunds are admin-only.</p>}
+
+          {error && (
+            <p className="text-red-600 text-sm mb-4">
+              {error}
+            </p>
+          )}
+
+          {!isAdmin && (
+            <p className="text-xs text-gray-500 mb-4">
+              You're viewing orders read-only — editing and refunds are
+              admin-only.
+            </p>
+          )}
 
           <div className="bg-white border rounded-lg w-full overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead>
                 <tr className="border-b bg-gray-100">
-                  <SortableHeader label="Order" field="orderID" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Customer" field="customerName" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Total" field="totalAmount" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Date" field="orderDate" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Avg Payment" field="avgPayment" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                  <th className="py-3 px-2 text-left">Status</th>
+                  <SortableHeader
+                    label="Order"
+                    field="orderID"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+
+                  <SortableHeader
+                    label="Customer"
+                    field="customerName"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+
+                  <SortableHeader
+                    label="Total"
+                    field="totalAmount"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+
+                  <SortableHeader
+                    label="Date"
+                    field="orderDate"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+
+                  <SortableHeader
+                    label="Avg Payment"
+                    field="avgPayment"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+
+                  <th className="py-3 px-2 text-left">
+                    Status
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} className="py-6 text-center text-gray-400">Loading…</td></tr>
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-6 text-center text-gray-400"
+                    >
+                      Loading…
+                    </td>
+                  </tr>
                 ) : orders.length === 0 ? (
-                  <tr><td colSpan={6} className="py-6 text-center text-gray-400">No orders found</td></tr>
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-6 text-center text-gray-400"
+                    >
+                      No orders found
+                    </td>
+                  </tr>
                 ) : (
                   orders.map((o) => (
                     <Fragment key={o.orderID}>
                       <tr
                         onClick={() => toggleRow(o.orderID)}
-                        className={`border-b hover:bg-gray-50 cursor-pointer ${expandedID === o.orderID ? 'bg-blue-50' : ''}`}
+                        className={`border-b hover:bg-gray-50 cursor-pointer ${
+                          expandedID === o.orderID
+                            ? 'bg-blue-50'
+                            : ''
+                        }`}
                       >
-                        <td className="py-2 px-3">{o.orderID}</td>
-                        <td className="py-2 px-3">{o.customerName}</td>
-                        <td className="py-2 px-3">{formatMoney(o.totalAmount)}</td>
-                        <td className="py-2 px-3">{new Date(o.orderDate).toLocaleDateString()}</td>
-                        <td className="py-2 px-3">{formatMoney(o.avgPayment)}</td>
                         <td className="py-2 px-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusBadge[o.displayStatus] || ''}`}>
+                          {o.orderID}
+                        </td>
+
+                        <td className="py-2 px-3">
+                          {o.customerName}
+                        </td>
+
+                        <td className="py-2 px-3">
+                          {formatMoney(o.totalAmount)}
+                        </td>
+
+                        <td className="py-2 px-3">
+                          {new Date(
+                            o.orderDate
+                          ).toLocaleDateString()}
+                        </td>
+
+                        <td className="py-2 px-3">
+                          {formatMoney(o.avgPayment)}
+                        </td>
+
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              statusBadge[o.displayStatus] || ''
+                            }`}
+                          >
                             {o.displayStatus}
                           </span>
                         </td>
                       </tr>
+
                       {expandedID === o.orderID && (
                         <tr className="bg-gray-50">
                           <td colSpan={6} className="p-4">
                             {detailLoading ? (
-                              <p className="text-gray-400 text-sm">Loading…</p>
+                              <p className="text-gray-400 text-sm">
+                                Loading…
+                              </p>
                             ) : !detail ? (
-                              <p className="text-red-500 text-sm">Could not load this order.</p>
+                              <p className="text-red-500 text-sm">
+                                Could not load this order.
+                              </p>
                             ) : (
                               <div className="grid grid-cols-1 @min-[768px]:grid-cols-2 gap-6 text-sm">
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-center">
-                                    <h3 className="font-bold text-brand">Details</h3>
-                                    <button onClick={handlePrintRevised} className="text-xs text-blue-600 hover:underline">
-                                      Print {detail.order.editHistory?.length ? '(Revised)' : ''}
+                                    <h3 className="font-bold text-brand">
+                                      Details
+                                    </h3>
+
+                                    <button
+                                      onClick={handlePrintRevised}
+                                      className="text-xs text-blue-600 hover:underline"
+                                    >
+                                      Print{' '}
+                                      {detail.order.editHistory?.length
+                                        ? '(Revised)'
+                                        : ''}
                                     </button>
                                   </div>
-                                  <div>Cashier: {detail.order.cashier}</div>
-                                  <div>Date: {new Date(detail.order.orderDate).toLocaleString()}</div>
+
+                                  <div>
+                                    Cashier: {detail.order.cashier}
+                                  </div>
+
+                                  <div>
+                                    Date:{' '}
+                                    {new Date(
+                                      detail.order.orderDate
+                                    ).toLocaleString()}
+                                  </div>
+
                                   {detail.order.status === 'refunded' && (
-                                    <div className="bg-gray-200 text-gray-700 rounded px-3 py-1 text-xs font-medium">This order has been refunded.</div>
+                                    <div className="bg-gray-200 text-gray-700 rounded px-3 py-1 text-xs font-medium">
+                                      This order has been refunded.
+                                    </div>
                                   )}
+
                                   <table className="w-full border-collapse text-xs bg-white">
                                     <thead className="bg-gray-100">
                                       <tr>
-                                        <th className="p-1 text-left border">Code</th>
-                                        <th className="p-1 text-left border">Qty</th>
-                                        <th className="p-1 text-left border">Amount</th>
-                                        <th className="p-1 text-left border">Discount</th>
+                                        <th className="p-1 text-left border">
+                                          Code
+                                        </th>
+
+                                        <th className="p-1 text-left border">
+                                          Qty
+                                        </th>
+
+                                        <th className="p-1 text-left border">
+                                          Amount
+                                        </th>
+
+                                        <th className="p-1 text-left border">
+                                          Discount
+                                        </th>
                                       </tr>
                                     </thead>
+
                                     <tbody>
                                       {detail.order.products.map((p) => (
                                         <tr key={p.productID}>
-                                          <td className="p-1 border">{p.productID}</td>
-                                          <td className="p-1 border">{p.quantity}</td>
-                                          <td className="p-1 border">{formatMoney(p.amount)}</td>
-                                          <td className="p-1 border">{p.discount}% ({p.discountType})</td>
+                                          <td className="p-1 border">
+                                            {p.productID}
+                                          </td>
+
+                                          <td className="p-1 border">
+                                            {p.quantity}
+                                          </td>
+
+                                          <td className="p-1 border">
+                                            {formatMoney(p.amount)}
+                                          </td>
+
+                                          <td className="p-1 border">
+                                            {p.discount}% (
+                                            {p.discountType})
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>
                                   </table>
+
                                   <div className="flex justify-between font-semibold border-t pt-2">
-                                    <span>Total</span><span>{formatMoney(detail.order.totalAmount)}</span>
+                                    <span>Total</span>
+                                    <span>
+                                      {formatMoney(
+                                        detail.order.totalAmount
+                                      )}
+                                    </span>
                                   </div>
-                                  <div className="flex justify-between"><span>Paid</span><span>{formatMoney(detail.order.amountPaid)}</span></div>
-                                  <div className="flex justify-between"><span>Balance Due</span><span>{formatMoney(detail.order.balanceDue)}</span></div>
+
+                                  <div className="flex justify-between">
+                                    <span>Paid</span>
+                                    <span>
+                                      {formatMoney(
+                                        detail.order.amountPaid
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex justify-between">
+                                    <span>Balance Due</span>
+                                    <span>
+                                      {formatMoney(
+                                        detail.order.balanceDue
+                                      )}
+                                    </span>
+                                  </div>
+
                                   {detail.order.creditApplied > 0 && (
-                                    <div className="flex justify-between text-green-700"><span>Store credit applied</span><span>{formatMoney(detail.order.creditApplied)}</span></div>
+                                    <div className="flex justify-between text-green-700">
+                                      <span>
+                                        Store credit applied
+                                      </span>
+
+                                      <span>
+                                        {formatMoney(
+                                          detail.order.creditApplied
+                                        )}
+                                      </span>
+                                    </div>
                                   )}
 
                                   {detail.order.editHistory?.length > 0 && (
                                     <div>
-                                      <h3 className="font-medium text-brand-green mb-1">Edit History / Store Credit Adjustments</h3>
+                                      <h3 className="font-medium text-brand-green mb-1">
+                                        Edit History / Store Credit
+                                        Adjustments
+                                      </h3>
+
                                       <ul className="text-xs space-y-1">
-                                        {detail.order.editHistory.map((e, i) => (
-                                          <li key={i} className="border-b pb-1">
-                                            {e.productID}: {e.originalQty} → {e.newQty} ({e.action}) by {e.editedBy} on {new Date(e.editedAt).toLocaleString()} — "{e.reason}"
-                                            {e.settlement === 'credit' && <> — Exchange: {formatMoney(e.creditAmount)} added to store credit</>}
-                                            {e.settlement === 'cash' && <> — Refund: {formatMoney(e.creditAmount)} cash back</>}
-                                          </li>
-                                        ))}
+                                        {detail.order.editHistory.map(
+                                          (e, i) => (
+                                            <li
+                                              key={i}
+                                              className="border-b pb-1"
+                                            >
+                                              {e.productID}:{' '}
+                                              {e.originalQty} →{' '}
+                                              {e.newQty} ({e.action}) by{' '}
+                                              {e.editedBy} on{' '}
+                                              {new Date(
+                                                e.editedAt
+                                              ).toLocaleString()}{' '}
+                                              — "{e.reason}"
+
+                                              {e.settlement === 'credit' && (
+                                                <>
+                                                  {' '}
+                                                  — Exchange:{' '}
+                                                  {formatMoney(
+                                                    e.creditAmount
+                                                  )}{' '}
+                                                  added to store credit
+                                                </>
+                                              )}
+
+                                              {e.settlement === 'cash' && (
+                                                <>
+                                                  {' '}
+                                                  — Refund:{' '}
+                                                  {formatMoney(
+                                                    e.creditAmount
+                                                  )}{' '}
+                                                  cash back
+                                                </>
+                                              )}
+                                            </li>
+                                          )
+                                        )}
                                       </ul>
                                     </div>
                                   )}
+
                                   {detail.refunds?.length > 0 && (
                                     <div>
-                                      <h3 className="font-medium text-red-600 mb-1">Refunds</h3>
+                                      <h3 className="font-medium text-red-600 mb-1">
+                                        Refunds
+                                      </h3>
+
                                       <ul className="text-xs space-y-1">
                                         {detail.refunds.map((r) => (
-                                          <li key={r._id} className="border-b pb-1">
-                                            {formatMoney(r.refundAmount)} by {r.processedBy} on {new Date(r.refundDate).toLocaleString()} — "{r.reason}"
-                                            {r.settlement === 'credit' && <> — {formatMoney(r.creditGenerated)} store credit</>}
+                                          <li
+                                            key={r._id}
+                                            className="border-b pb-1"
+                                          >
+                                            {formatMoney(
+                                              r.refundAmount
+                                            )}{' '}
+                                            by {r.processedBy} on{' '}
+                                            {new Date(
+                                              r.refundDate
+                                            ).toLocaleString()}{' '}
+                                            — "{r.reason}"
+
+                                            {r.settlement === 'credit' && (
+                                              <>
+                                                {' '}
+                                                —{' '}
+                                                {formatMoney(
+                                                  r.creditGenerated
+                                                )}{' '}
+                                                store credit
+                                              </>
+                                            )}
                                           </li>
                                         ))}
                                       </ul>
@@ -580,160 +928,353 @@ export default function Orders() {
                                   )}
                                 </div>
 
-                                {isAdmin && detail.order.status !== 'refunded' && (
-                                  <div className="space-y-3">
-                                    {detail.order.customerName === WALKIN_CUSTOMER && editWindowOpen(detail.order) && (
-                                      <div className="border border-dashed border-blue-300 rounded-lg p-3 bg-white">
-                                        <h3 className="font-medium mb-2 text-blue-700">Convert to customer</h3>
+                                {isAdmin &&
+                                  detail.order.status !== 'refunded' && (
+                                    <div className="space-y-3">
+                                      {detail.order.customerName ===
+                                        WALKIN_CUSTOMER &&
+                                        editWindowOpen(detail.order) && (
+                                          <div className="border border-dashed border-blue-300 rounded-lg p-3 bg-white">
+                                            <h3 className="font-medium mb-2 text-blue-700">
+                                              Convert to customer
+                                            </h3>
+
+                                            <p className="text-xs text-gray-500 mb-2">
+                                              This is a walk-in order. Attach
+                                              it to a customer so any store
+                                              credit an exchange generates
+                                              has an account to land in.
+                                            </p>
+
+                                            <form
+                                              onSubmit={handleConvertSubmit}
+                                              className="space-y-2"
+                                            >
+                                              <input
+                                                type="text"
+                                                placeholder="Customer name (required)"
+                                                value={
+                                                  convertForm.customerName
+                                                }
+                                                onChange={(e) =>
+                                                  setConvertForm({
+                                                    ...convertForm,
+                                                    customerName:
+                                                      e.target.value,
+                                                  })
+                                                }
+                                                className="border rounded px-2 py-1 w-full text-sm"
+                                              />
+
+                                              <input
+                                                type="text"
+                                                placeholder="Mobile no. (optional)"
+                                                value={
+                                                  convertForm.mobileNo
+                                                }
+                                                onChange={(e) =>
+                                                  setConvertForm({
+                                                    ...convertForm,
+                                                    mobileNo:
+                                                      e.target.value,
+                                                  })
+                                                }
+                                                className="border rounded px-2 py-1 w-full text-sm"
+                                              />
+
+                                              <input
+                                                type="text"
+                                                placeholder="Email (optional)"
+                                                value={
+                                                  convertForm.email
+                                                }
+                                                onChange={(e) =>
+                                                  setConvertForm({
+                                                    ...convertForm,
+                                                    email:
+                                                      e.target.value,
+                                                  })
+                                                }
+                                                className="border rounded px-2 py-1 w-full text-sm"
+                                              />
+
+                                              <input
+                                                type="text"
+                                                placeholder="Address (optional)"
+                                                value={
+                                                  convertForm.address
+                                                }
+                                                onChange={(e) =>
+                                                  setConvertForm({
+                                                    ...convertForm,
+                                                    address:
+                                                      e.target.value,
+                                                  })
+                                                }
+                                                className="border rounded px-2 py-1 w-full text-sm"
+                                              />
+
+                                              <button
+                                                type="submit"
+                                                className="w-full bg-blue-600 text-white rounded py-1.5 text-sm hover:bg-blue-700"
+                                              >
+                                                Convert & Attach
+                                              </button>
+                                            </form>
+                                          </div>
+                                        )}
+
+                                      <div className="border border-dashed border-teal-300 rounded-lg p-3 bg-white">
+                                        <h3 className="font-medium mb-1 text-teal-700">
+                                          Exchange — reduce a line item
+                                          (Store Credit){' '}
+                                          {!editWindowOpen(
+                                            detail.order
+                                          ) && (
+                                            <span className="text-red-500 text-xs">
+                                              (72h window expired)
+                                            </span>
+                                          )}
+                                        </h3>
+
                                         <p className="text-xs text-gray-500 mb-2">
-                                          This is a walk-in order. Attach it to a customer so any store credit an
-                                          exchange generates has an account to land in.
+                                          Any value freed up is settled as
+                                          store credit, never cash back.
                                         </p>
-                                        <form onSubmit={handleConvertSubmit} className="space-y-2">
+
+                                        {editWindowOpen(detail.order) && (
+                                          <form
+                                            onSubmit={handleEditSubmit}
+                                            className="space-y-2"
+                                          >
+                                            <select
+                                              value={
+                                                editForm.productID
+                                              }
+                                              onChange={(e) =>
+                                                setEditForm({
+                                                  ...editForm,
+                                                  productID:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            >
+                                              <option value="">
+                                                Select item
+                                              </option>
+
+                                              {detail.order.products.map(
+                                                (p) => (
+                                                  <option
+                                                    key={p.productID}
+                                                    value={p.productID}
+                                                  >
+                                                    {p.productID} (qty{' '}
+                                                    {p.quantity})
+                                                  </option>
+                                                )
+                                              )}
+                                            </select>
+
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max={
+                                                editForm.productID
+                                                  ? detail.order.products.find(
+                                                      (p) =>
+                                                        p.productID ===
+                                                        editForm.productID
+                                                    )?.quantity
+                                                  : undefined
+                                              }
+                                              placeholder="Quantity to remove (0 = no reduction)"
+                                              value={
+                                                editForm.removeQty
+                                              }
+                                              onChange={(e) =>
+                                                setEditForm({
+                                                  ...editForm,
+                                                  removeQty:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            />
+
+                                            <input
+                                              type="text"
+                                              placeholder="Reason (required)"
+                                              value={
+                                                editForm.reason
+                                              }
+                                              onChange={(e) =>
+                                                setEditForm({
+                                                  ...editForm,
+                                                  reason:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            />
+
+                                            <button
+                                              type="submit"
+                                              className="w-full bg-brand text-white rounded py-1.5 text-sm hover:bg-brand-dark"
+                                            >
+                                              Save Edit
+                                            </button>
+                                          </form>
+                                        )}
+                                      </div>
+
+                                      <div className="border border-dashed border-green-300 rounded-lg p-3 bg-white">
+                                        <h3 className="font-medium mb-2 text-green-700">
+                                          Exchange — add a replacement item
+                                          (Store Credit){' '}
+                                          {!editWindowOpen(
+                                            detail.order
+                                          ) && (
+                                            <span className="text-red-500 text-xs">
+                                              (72h window expired)
+                                            </span>
+                                          )}
+                                        </h3>
+
+                                        {editWindowOpen(detail.order) && (
+                                          <form
+                                            onSubmit={handleAddSubmit}
+                                            className="space-y-2"
+                                          >
+                                            <select
+                                              value={
+                                                addForm.productID
+                                              }
+                                              onChange={(e) =>
+                                                setAddForm({
+                                                  ...addForm,
+                                                  productID:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            >
+                                              <option value="">
+                                                Select product to add
+                                              </option>
+
+                                              {allProducts
+                                                .filter(
+                                                  (p) =>
+                                                    !detail.order.products.some(
+                                                      (line) =>
+                                                        line.productID ===
+                                                        p.productID
+                                                    )
+                                                )
+                                                .map((p) => (
+                                                  <option
+                                                    key={p.productID}
+                                                    value={p.productID}
+                                                  >
+                                                    {p.productID} —{' '}
+                                                    {p.productName}
+                                                  </option>
+                                                ))}
+                                            </select>
+
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              placeholder="Quantity"
+                                              value={
+                                                addForm.quantity
+                                              }
+                                              onChange={(e) =>
+                                                setAddForm({
+                                                  ...addForm,
+                                                  quantity:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            />
+
+                                            <input
+                                              type="text"
+                                              placeholder="Reason (required)"
+                                              value={
+                                                addForm.reason
+                                              }
+                                              onChange={(e) =>
+                                                setAddForm({
+                                                  ...addForm,
+                                                  reason:
+                                                    e.target.value,
+                                                })
+                                              }
+                                              className="border rounded px-2 py-1 w-full text-sm"
+                                            />
+
+                                            <button
+                                              type="submit"
+                                              className="w-full bg-green-600 text-white rounded py-1.5 text-sm hover:bg-green-700"
+                                            >
+                                              Add Item
+                                            </button>
+                                          </form>
+                                        )}
+                                      </div>
+
+                                      <div className="border border-dashed border-red-300 rounded-lg p-3 bg-white">
+                                        <h3 className="font-medium mb-1 text-red-700">
+                                          Refund Full Order (Cash Back)
+                                        </h3>
+
+                                        <p className="text-xs text-gray-500 mb-2">
+                                          Refunds every item on this order
+                                          for cash. For a partial swap, use
+                                          Exchange above instead.
+                                        </p>
+
+                                        <ul className="text-xs text-gray-600 mb-2 space-y-0.5">
+                                          {detail.order.products.map(
+                                            (p) => (
+                                              <li key={p.productID}>
+                                                {p.productID} ×{' '}
+                                                {p.quantity}
+                                              </li>
+                                            )
+                                          )}
+                                        </ul>
+
+                                        <form
+                                          onSubmit={handleRefundSubmit}
+                                          className="space-y-2"
+                                        >
                                           <input
                                             type="text"
-                                            placeholder="Customer name (required)"
-                                            value={convertForm.customerName}
-                                            onChange={(e) => setConvertForm({ ...convertForm, customerName: e.target.value })}
+                                            placeholder="Reason (required)"
+                                            value={refundReason}
+                                            onChange={(e) =>
+                                              setRefundReason(
+                                                e.target.value
+                                              )
+                                            }
                                             className="border rounded px-2 py-1 w-full text-sm"
                                           />
-                                          <input
-                                            type="text"
-                                            placeholder="Mobile no. (optional)"
-                                            value={convertForm.mobileNo}
-                                            onChange={(e) => setConvertForm({ ...convertForm, mobileNo: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <input
-                                            type="text"
-                                            placeholder="Email (optional)"
-                                            value={convertForm.email}
-                                            onChange={(e) => setConvertForm({ ...convertForm, email: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <input
-                                            type="text"
-                                            placeholder="Address (optional)"
-                                            value={convertForm.address}
-                                            onChange={(e) => setConvertForm({ ...convertForm, address: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <button type="submit" className="w-full bg-blue-600 text-white rounded py-1.5 text-sm hover:bg-blue-700">
-                                            Convert & Attach
+
+                                          <button
+                                            type="submit"
+                                            className="w-full bg-red-600 text-white rounded py-1.5 text-sm hover:bg-red-700"
+                                          >
+                                            Refund Full Order — Cash Back
                                           </button>
                                         </form>
                                       </div>
-                                    )}
-
-                                    <div className="border border-dashed border-teal-300 rounded-lg p-3 bg-white">
-                                      <h3 className="font-medium mb-1 text-teal-700">
-                                        Exchange — reduce a line item (Store Credit) {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
-                                      </h3>
-                                      <p className="text-xs text-gray-500 mb-2">
-                                        Any value freed up is settled as store credit, never cash back.
-                                      </p>
-                                      {editWindowOpen(detail.order) && (
-                                        <form onSubmit={handleEditSubmit} className="space-y-2">
-                                          <select
-                                            value={editForm.productID}
-                                            onChange={(e) => setEditForm({ ...editForm, productID: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          >
-                                            <option value="">Select item</option>
-                                            {detail.order.products.map((p) => (
-                                              <option key={p.productID} value={p.productID}>{p.productID} (qty {p.quantity})</option>
-                                            ))}
-                                          </select>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max={editForm.productID
-                                              ? detail.order.products.find((p) => p.productID === editForm.productID)?.quantity
-                                              : undefined}
-                                            placeholder="Quantity to remove (0 = no reduction)"
-                                            value={editForm.removeQty}
-                                            onChange={(e) => setEditForm({ ...editForm, removeQty: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <input
-                                            type="text"
-                                            placeholder="Reason (required)"
-                                            value={editForm.reason}
-                                            onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <button type="submit" className="w-full bg-brand text-white rounded py-1.5 text-sm hover:bg-brand-dark">
-                                            Save Edit
-                                          </button>
-                                        </form>
-                                      )}
                                     </div>
-
-                                    <div className="border border-dashed border-green-300 rounded-lg p-3 bg-white">
-                                      <h3 className="font-medium mb-2 text-green-700">
-                                        Exchange — add a replacement item (Store Credit) {!editWindowOpen(detail.order) && <span className="text-red-500 text-xs">(72h window expired)</span>}
-                                      </h3>
-                                      {editWindowOpen(detail.order) && (
-                                        <form onSubmit={handleAddSubmit} className="space-y-2">
-                                          <select
-                                            value={addForm.productID}
-                                            onChange={(e) => setAddForm({ ...addForm, productID: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          >
-                                            <option value="">Select product to add</option>
-                                            {allProducts
-                                              .filter((p) => !detail.order.products.some((line) => line.productID === p.productID))
-                                              .map((p) => (
-                                                <option key={p.productID} value={p.productID}>{p.productID} — {p.productName}</option>
-                                              ))}
-                                          </select>
-                                          <input
-                                            type="number"
-                                            min="1"
-                                            placeholder="Quantity"
-                                            value={addForm.quantity}
-                                            onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <input
-                                            type="text"
-                                            placeholder="Reason (required)"
-                                            value={addForm.reason}
-                                            onChange={(e) => setAddForm({ ...addForm, reason: e.target.value })}
-                                            className="border rounded px-2 py-1 w-full text-sm"
-                                          />
-                                          <button type="submit" className="w-full bg-green-600 text-white rounded py-1.5 text-sm hover:bg-green-700">
-                                            Add Item
-                                          </button>
-                                        </form>
-                                      )}
-                                    </div>
-
-                                    <div className="border border-dashed border-red-300 rounded-lg p-3 bg-white">
-                                      <h3 className="font-medium mb-1 text-red-700">Refund Full Order (Cash Back)</h3>
-                                      <p className="text-xs text-gray-500 mb-2">
-                                        Refunds every item on this order for cash. For a partial swap, use Exchange above instead.
-                                      </p>
-                                      <ul className="text-xs text-gray-600 mb-2 space-y-0.5">
-                                        {detail.order.products.map((p) => (
-                                          <li key={p.productID}>{p.productID} × {p.quantity}</li>
-                                        ))}
-                                      </ul>
-                                      <form onSubmit={handleRefundSubmit} className="space-y-2">
-                                        <input
-                                          type="text"
-                                          placeholder="Reason (required)"
-                                          value={refundReason}
-                                          onChange={(e) => setRefundReason(e.target.value)}
-                                          className="border rounded px-2 py-1 w-full text-sm"
-                                        />
-                                        <button type="submit" className="w-full bg-red-600 text-white rounded py-1.5 text-sm hover:bg-red-700">
-                                          Refund Full Order — Cash Back
-                                        </button>
-                                      </form>
-                                    </div>
-                                  </div>
-                                )}
+                                  )}
                               </div>
                             )}
                           </td>
@@ -744,7 +1285,13 @@ export default function Orders() {
                 )}
               </tbody>
             </table>
-            <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
+
+            <Pagination
+              page={page}
+              limit={PAGE_SIZE}
+              total={total}
+              onPageChange={setPage}
+            />
           </div>
         </div>
       </main>
