@@ -126,15 +126,15 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-item {
-            width: 28%;
+            width: 34%;
           }
 
           .receipt table.items .col-rate {
-            width: 17%;
+            width: 20%;
           }
 
           .receipt table.items .col-qty {
-            width: 10%;
+            width: 12%;
           }
 
           .receipt table.items .col-subtotal {
@@ -142,11 +142,11 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-disc {
-            width: 13%;
+            width: 16%;
           }
 
           .receipt table.items .col-total {
-            width: 15%;
+            width: 18%;
           }
 
           .receipt table.items th,
