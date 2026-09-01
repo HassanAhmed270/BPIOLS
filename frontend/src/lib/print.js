@@ -126,7 +126,7 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-item {
-            width: 34%;
+            width: 24%;
           }
 
           .receipt table.items .col-rate {
@@ -134,7 +134,7 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-qty {
-            width: 12%;
+            width: 10%;
           }
 
           .receipt table.items .col-subtotal {
@@ -142,18 +142,18 @@ export function printReceipt(html) {
           }
 
           .receipt table.items .col-disc {
-            width: 16%;
+            width: 18%;
           }
 
           .receipt table.items .col-total {
-            width: 18%;
+            width: 28%;
           }
 
           .receipt table.items th,
           .receipt table.items td {
             border: none;
             padding: 1px 2px;
-            text-align: center;
+            text-align: right;
             vertical-align: middle;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -162,7 +162,7 @@ export function printReceipt(html) {
 
           .receipt table.items th:first-child,
           .receipt table.items td:first-child {
-            text-align: center;
+            text-align: left;
           }
 
           .receipt table.items thead th {
