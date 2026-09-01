@@ -12,6 +12,7 @@ const { roundMoney } = require('../lib/money');
 const { getLatestSellingPrice } = require('../lib/pricing');
 const { consumeFIFO, deriveCostSource, disableIfDepleted } = require('../lib/costing');
 const { logAudit } = require('../lib/auditLog');
+const { applyCustomerAccountDelta } = require('../lib/customerAccount');
 const { isValidProductId, isValidOrderId, isValidDiscount, isValidEmail, isValidPhone } = require('../lib/validators');
 const logger = require('../lib/logger');
 
@@ -315,13 +316,20 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
       // Stage 5 (scope extended from routes/orders.js into this route,
       // per an explicit decision — see production-progress.md — since
       // customer store credit is otherwise generated but never used):
-      // re-read the customer's current creditBalance inside the
-      // transaction (session-scoped, not from an earlier read) and apply
-      // as much of it as covers this order's total, same pattern as the
-      // supplier-credit auto-apply in routes/suppliers.js. Walk-in sales
+      // re-read the customer's current standing inside the transaction
+      // (session-scoped, not from an earlier read) purely to compute
+      // creditApplied below for the receipt — how much of *this* order
+      // was covered by credit the customer already had. Walk-in sales
       // have no Customer document and never carry credit.
+      //
+      // The actual account update further down no longer needs this
+      // value: applyCustomerAccountDelta() below applies one signed delta
+      // to accountBalance, which automatically nets against whatever
+      // existing credit or debt the customer already had — no separate
+      // "apply credit, then check for balance" steps needed, and no
+      // window where this read could go stale before the write (the
+      // write is a plain $inc, not this value written back).
       let creditApplied = 0;
-      let newCreditBalance = 0;
       if (!isWalkIn) {
         const customerDoc = await Customer.findOne({ customerName: draft.customerName }).session(session);
         if (!customerDoc) {
@@ -329,7 +337,6 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
         }
         const existingCredit = roundMoney(customerDoc.creditBalance || 0);
         creditApplied = roundMoney(Math.min(existingCredit, verifiedTotal));
-        newCreditBalance = roundMoney(existingCredit - creditApplied);
       }
       const netOwed = roundMoney(verifiedTotal - creditApplied);
 
@@ -352,11 +359,19 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
       // walk-in sale has no Customer document to credit, so this only
       // ever applies alongside the credit-auto-apply block above.
       // Anything except an explicit 'balance' choice keeps today's
-      // behavior exactly: the excess is simply never persisted anywhere.
+      // behavior exactly: the excess is simply never persisted anywhere
+      // (handed back as physical change at the register).
       const overpaidAmount = roundMoney(Math.max(0, (draft.paidInput || 0) - netOwed));
-      if (!isWalkIn && overpaidAmount > 0 && draft.overpaymentChoice === 'balance') {
-        newCreditBalance = roundMoney(newCreditBalance + overpaidAmount);
-      }
+      const bankOverpay = !isWalkIn && overpaidAmount > 0 && draft.overpaymentChoice === 'balance';
+
+      // Single signed delta for this whole transaction's effect on the
+      // customer's running balance: what this order added minus what
+      // actually got applied against it. When the overpaid excess is
+      // banked, the *entire* cash collected (draft.paidInput) counts —
+      // that's what makes it able to pay down debt from a completely
+      // different order, not just this one, in the same step.
+      const effectivePaid = bankOverpay ? roundMoney(Math.max(draft.paidInput || 0, 0)) : amountPaid;
+      const accountDelta = roundMoney(verifiedTotal - effectivePaid);
 
       const created = await Order.create(
         [
@@ -382,10 +397,10 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
       // just for this would defeat the point (no unnecessary customer/
       // credit record for an untracked sale).
       if (!isWalkIn) {
+        await applyCustomerAccountDelta(Customer, draft.customerName, accountDelta, session);
         await Customer.updateOne(
           { customerName: draft.customerName },
           {
-            $set: { creditBalance: newCreditBalance },
             $push: {
               orders: {
                 orderNo: draft.billID,

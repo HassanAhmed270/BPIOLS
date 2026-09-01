@@ -14,6 +14,7 @@ const { getLatestSellingPrice } = require('../lib/pricing');
 const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query');
 const { getDashboardSummary } = require('../lib/reports');
 const { logAudit } = require('../lib/auditLog');
+const { applyCustomerAccountDelta } = require('../lib/customerAccount');
 const { isValidOrderId, isValidProductId } = require('../lib/validators');
 
 const router = express.Router();
@@ -292,23 +293,18 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       }
       await order.save({ session });
 
-      // Stage 20: one delta against Customer.balance covers both ways
-      // this edit can move money — the order's own balanceDue growing
-      // (adding a line, more owed → balance goes down) or shrinking
-      // (reducing a line, less owed → balance goes up), plus
-      // creditGenerated (always credited for an edit, no cash-back
-      // option here). Because balance is a running signed total, this
-      // naturally pays down any debt the customer already had before
-      // building new credit — no separate "sweep old orders" step.
-      // Keeps the customer's embedded order summary (Stage 5) in sync
-      // too. No-ops harmlessly for a walk-in order, which has no
+      // Single signed delta applied to the customer's running account
+      // balance (see lib/customerAccount.js): how much THIS order's own
+      // outstanding amount changed, plus whatever of that change is being
+      // banked as credit right now. This is what lets a freed-up
+      // overpayment from an edit actually pay down a balance the
+      // customer carries on a *different* order — it's the same running
+      // number, not a separate credit bucket that only checkout ever
+      // reads. No-ops harmlessly for a walk-in order, which has no
       // matching Customer document to update.
-      const balanceDelta = computeOrderBalanceDelta({
-        beforeBalanceDue,
-        afterBalanceDue: order.balanceDue,
-        settlement: creditGenerated,
-        creditSettlement: true,
-      });
+      const accountDelta = (order.balanceDue - beforeBalanceDue) - creditGenerated;
+      await applyCustomerAccountDelta(Customer, order.customerName, accountDelta, session);
+
       const customerUpdate = {
         $set: {
           'orders.$.totalAmount': order.totalAmount,
@@ -319,23 +315,18 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       if (creditGenerated > 0) {
         customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
       }
-      if (balanceDelta !== 0) {
-        customerUpdate.$inc = { balance: balanceDelta };
-      }
-      const customerUpdateResult = await Customer.updateOne(
-        {
-          customerName: order.customerName,
-          'orders.orderNo': order.orderID,
-        },
-        customerUpdate,
-        { session }
-      );
-
-      if (customerUpdateResult.matchedCount !== 1) {
-        throw new AppError(
-          400,
-          `Customer balance/order history could not be updated for order "${order.orderID}".`
+      // Only a real customer's own order-history entry needs to actually
+      // match here — a walk-in order has no Customer document at all
+      // (matchedCount 0 for it is expected, not an error).
+      if (order.customerName !== WALKIN_CUSTOMER) {
+        const customerUpdateResult = await Customer.updateOne(
+          { customerName: order.customerName, 'orders.orderNo': order.orderID },
+          customerUpdate,
+          { session }
         );
+        if (customerUpdateResult.matchedCount !== 1) {
+          throw new AppError(400, `Customer order history could not be updated for order "${order.orderID}".`);
+        }
       }
       await logAudit(
         {
@@ -395,6 +386,18 @@ router.post('/api/order/:orderID/convert-customer', requireAuth, requireAdmin, a
       const beforeOrder = order.toObject();
       order.customerName = customerName;
       await order.save({ session });
+
+      // This order's own outstanding balanceDue now becomes part of what
+      // this customer owes overall — under the old model that happened
+      // for free (totalBalanceDue was a live sum over orders[]); now that
+      // accountBalance is the one aggregate figure, attaching an order
+      // with money still owed on it has to explicitly add that amount,
+      // or a walk-in sale with an unpaid balance would silently stop
+      // counting toward the customer's standing the moment it's attached.
+      // A walk-in order is never overpaid (checkout never banks
+      // overpayment for one — see routes/billing.js), so balanceDue here
+      // is always >= 0 and this is always a debit, never a credit.
+      await applyCustomerAccountDelta(Customer, customerName, order.balanceDue, session);
 
       await Customer.updateOne(
         { customerName },
@@ -526,18 +529,17 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       );
       refund = created[0];
 
-      // Stage 20: same one-delta pattern as the edit handler above — the
-      // order's own balanceDue shrinking (refunded items lower the
-      // total = less owed, regardless of the cash/credit choice) always
-      // moves balance; creditGenerated is only folded in when the admin
-      // picked "credit" (creditGenerated is already 0 when they picked
-      // "cash", so this stays correct either way).
-      const balanceDelta = computeOrderBalanceDelta({
-        beforeBalanceDue,
-        afterBalanceDue: order.balanceDue,
-        settlement: creditGenerated,
-        creditSettlement: true,
-      });
+      // Same unified account-delta formula as the edit route above: the
+      // change in this order's own outstanding amount, plus whatever of
+      // that is being banked as credit right now (0 when the admin chose
+      // 'cash' — that portion left as physical cash instead, so it never
+      // touches the running balance). Unconditional and applied
+      // regardless of disposition: even a straight cash refund still
+      // needs to correct the ledger down by however much of the order's
+      // prior balanceDue this refund erased.
+      const accountDelta = (order.balanceDue - beforeBalanceDue) - creditGenerated;
+      await applyCustomerAccountDelta(Customer, order.customerName, accountDelta, session);
+
       const customerUpdate = {
         $set: {
           'orders.$.totalAmount': order.totalAmount,
@@ -548,10 +550,11 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       if (creditGenerated > 0) {
         customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
       }
-      if (balanceDelta !== 0) {
-        customerUpdate.$inc = { balance: balanceDelta };
+      // Only a real customer's own order-history entry needs to actually
+      // match here — a walk-in order has no Customer document at all.
+      if (order.customerName !== WALKIN_CUSTOMER) {
+        await Customer.updateOne({ customerName: order.customerName, 'orders.orderNo': order.orderID }, customerUpdate, { session });
       }
-      
 
       await logAudit(
         {

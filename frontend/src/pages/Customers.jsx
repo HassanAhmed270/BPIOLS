@@ -5,7 +5,7 @@ import Topbar from '../components/Topbar';
 import SortableHeader from '../components/SortableHeader';
 import Pagination from '../components/Pagination';
 import { api } from '../lib/api';
-import { formatMoney } from '../lib/money';
+import { formatMoney, roundMoney } from '../lib/money';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useConfirm } from '../components/ConfirmDialog';
 
@@ -186,16 +186,15 @@ export default function Customers() {
                           <th className="p-2 text-left">Second No</th>
                           <th className="p-2 text-left">Email</th>
                           <th className="p-2 text-left">Address</th>
-                          <SortableHeader label="Balance Due" field="totalBalanceDue" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                          <th className="p-2 text-left">Store Credit</th>
+                          <SortableHeader label="Balance" field="accountBalance" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="right" />
                           <th className="p-2 text-left">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {loading ? (
-                          <tr><td colSpan={8} className="py-6 text-center text-gray-400">Loading…</td></tr>
+                          <tr><td colSpan={7} className="py-6 text-center text-gray-400">Loading…</td></tr>
                         ) : customers.length === 0 ? (
-                          <tr><td colSpan={8} className="py-6 text-center text-gray-400">No customers found</td></tr>
+                          <tr><td colSpan={7} className="py-6 text-center text-gray-400">No customers found</td></tr>
                         ) : (
                           customers.map((c) => (
                             <tr
@@ -207,11 +206,18 @@ export default function Customers() {
                               <td className="py-2 px-3">{c.emergencyMobile}</td>
                               <td className="py-2 px-3">{c.email}</td>
                               <td className="py-2 px-3">{c.address}</td>
-                              <td className={`py-2 px-3 ${c.totalBalanceDue > 0 ? 'text-red-700 font-semibold' : ''}`}>
-                                {formatMoney(c.totalBalanceDue || 0)}
-                              </td>
-                              <td className={`py-2 px-3 ${c.creditBalance > 0 ? 'text-green-700 font-semibold' : ''}`}>
-                                {formatMoney(c.creditBalance || 0)}
+                              {/* Single signed number, same pattern as Suppliers.jsx's net
+                                  balance cell — positive (red) = customer owes us, negative
+                                  (green) = they're in credit, exactly zero = settled. No
+                                  longer two separately-tracked figures that could disagree
+                                  with each other; both are the same accountBalance. */}
+                              <td className="py-2 px-3 text-right font-semibold">
+                                {(() => {
+                                  const netBalance = roundMoney(c.accountBalance || 0);
+                                  if (netBalance > 0) return <span className="text-red-700">-{formatMoney(netBalance)}</span>;
+                                  if (netBalance < 0) return <span className="text-green-700">+{formatMoney(-netBalance)}</span>;
+                                  return <span className="text-gray-400 font-normal">{formatMoney(0)}</span>;
+                                })()}
                               </td>
                               <td className="py-2 px-3 flex gap-2">
                                 <button onClick={() => handleSelectForUpdate(c)} className="text-blue-600 hover:text-blue-800" title="Edit">✏️</button>

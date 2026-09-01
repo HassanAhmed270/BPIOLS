@@ -25,21 +25,30 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
       }
     : {};
 
-  const data = await Customer.find(filter, 'customerName mobileNo emergencyMobile email address orders creditBalance');
-  const mapped = data.map((c) => ({
-    _id: c._id,
-    customerName: c.customerName,
-    mobileNo: c.mobileNo,
-    emergencyMobile: c.emergencyMobile,
-    email: c.email,
-    address: c.address,
-    orders: c.orders,
-    totalBalanceDue: roundMoney(c.orders.reduce((sum, o) => sum + (o.balanceDue || 0), 0)),
-    // Stage 5 — scope extended from routes/customers.js (not listed in
-    // production.md's Stage 5 Affected areas) so the store-credit ledger
-    // is actually visible somewhere in the app, mirroring Suppliers.jsx.
-    creditBalance: roundMoney(c.creditBalance || 0),
-  }));
+  const data = await Customer.find(filter, 'customerName mobileNo emergencyMobile email address orders accountBalance');
+  const mapped = data.map((c) => {
+    // Single source of truth: accountBalance (positive = customer owes
+    // us, negative = store credit — see models/Customers.js). The two
+    // figures below are just its two non-negative faces, so they can
+    // never disagree with each other the way two separately-stored
+    // fields could.
+    const accountBalance = roundMoney(c.accountBalance || 0);
+    return {
+      _id: c._id,
+      customerName: c.customerName,
+      mobileNo: c.mobileNo,
+      emergencyMobile: c.emergencyMobile,
+      email: c.email,
+      address: c.address,
+      orders: c.orders,
+      accountBalance,
+      totalBalanceDue: Math.max(0, accountBalance),
+      // Stage 5 — scope extended from routes/customers.js (not listed in
+      // production.md's Stage 5 Affected areas) so the store-credit ledger
+      // is actually visible somewhere in the app, mirroring Suppliers.jsx.
+      creditBalance: Math.max(0, roundMoney(-accountBalance)),
+    };
+  });
 
   const { data: customers, total } = sortAndPaginate(mapped, { sortBy, sortDir, page, limit });
   res.json({ success: true, customers, total, page, limit });
@@ -145,7 +154,7 @@ router.post('/customer/deleteCustomer', requireAuth, requireAdmin, asyncHandler(
     return res.status(404).json({ success: false, message: 'Customer not found' });
   }
 
-  const totalBalanceDue = roundMoney(customer.orders.reduce((sum, o) => sum + (o.balanceDue || 0), 0));
+  const totalBalanceDue = Math.max(0, roundMoney(customer.accountBalance || 0));
   if (totalBalanceDue > 0 && force !== true) {
     return res.status(409).json({
       success: false,
