@@ -7,7 +7,7 @@ import Pagination from '../components/Pagination';
 import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
-import { formatMoney } from '../lib/money';
+import { formatMoney, formatMoneyShort } from '../lib/money';
 import { printReceipt, formatReceiptDate, formatReceiptTime } from '../lib/print';
 import { SHOP_NAME, SHOP_ADDRESS, SHOP_PHONE } from '../lib/shopInfo';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
@@ -255,19 +255,46 @@ export default function Orders() {
   // unscoped `.edit-history` blocks below the receipt, since that
   // tabular audit data (multi-column, timestamps, reasons) doesn't fit
   // an 80mm layout — see print.js's header comment.
-  const handlePrintRevised = () => {
+    const handlePrintRevised = () => {
     if (!detail) return;
+
     const { order, refunds } = detail;
     const now = new Date();
+
     const itemRows = order.products
       .map((p) => {
-        const rate = p.quantity > 0 ? p.amount / p.quantity : 0;
+        const quantity = Number(p.quantity || 0);
+        const total = Number(p.amount || 0);
+        const discountValue = Number(p.discount || 0);
+
+        let subtotal = total;
+        let discountAmount = 0;
+
+        if (p.discountType === 'percentage' || p.discountType === 'percent') {
+          if (discountValue > 0 && discountValue < 100) {
+            subtotal = total / (1 - discountValue / 100);
+            discountAmount = subtotal - total;
+          }
+        } else if (p.discountType === 'fixed') {
+          discountAmount = discountValue;
+          subtotal = total + discountAmount;
+        }
+
+        const rate = quantity > 0 ? total / quantity : 0;
+
         return `
-          <tr><td class="item-name" colspan="5">${p.productID}</td></tr>
-          <tr><td></td><td>${formatMoney(rate)}</td><td>${p.discount > 0 ? `${p.discount}%` : '—'}</td><td>${p.quantity}</td><td>${formatMoney(p.amount)}</td></tr>
+          <tr>
+            <td class="revised-item">${p.productID}</td>
+            <td>${formatMoneyShort(rate)}</td>
+            <td>${quantity}</td>
+            <td>${formatMoneyShort(subtotal)}</td>
+            <td>${formatMoneyShort(discountAmount)}</td>
+            <td>${formatMoneyShort(total)}</td>
+          </tr>
         `;
       })
       .join('');
+
     const editRows = (order.editHistory || [])
       .map((e) => {
         const settlementLabel =
@@ -276,46 +303,150 @@ export default function Orders() {
             : e.settlement === 'cash'
             ? `Cash Back: ${formatMoney(e.creditAmount || 0)}`
             : '—';
+
         return `
-    <tr>
-      <td>${e.productID}</td>
-      <td>${e.originalQty} → ${e.newQty}</td>
-      <td>${e.action}</td>
-      <td>${e.editedBy}</td>
-      <td>${new Date(e.editedAt).toLocaleString()}</td>
-      <td>${e.reason}</td>
-      <td>${settlementLabel}</td>
-    </tr>
-  `;
+          <tr>
+            <td>${e.productID}</td>
+            <td>${e.originalQty} → ${e.newQty}</td>
+            <td>${e.action}</td>
+            <td>${e.editedBy}</td>
+            <td>${new Date(e.editedAt).toLocaleString()}</td>
+            <td>${e.reason}</td>
+            <td>${settlementLabel}</td>
+          </tr>
+        `;
       })
       .join('');
+
     const refundRows = (refunds || [])
-      .map((r) => `<tr><td>${formatMoney(r.refundAmount)}</td><td>${r.processedBy}</td><td>${new Date(r.refundDate).toLocaleString()}</td><td>${r.reason || ''}</td></tr>`)
+      .map(
+        (r) => `
+          <tr>
+            <td>${formatMoney(r.refundAmount)}</td>
+            <td>${r.processedBy}</td>
+            <td>${new Date(r.refundDate).toLocaleString()}</td>
+            <td>${r.reason || ''}</td>
+          </tr>
+        `
+      )
       .join('');
 
     printReceipt(`
-      <div class="receipt">
+      <div class="receipt revised-receipt">
         <div class="shop-name">${SHOP_NAME}</div>
         <div class="shop-line">${SHOP_ADDRESS}</div>
         <div class="shop-line">Phone: ${SHOP_PHONE}</div>
+
         <hr class="sep-solid" />
-        <div class="meta-row"><span>Revised Receipt${order.status === 'refunded' ? ' (REFUNDED)' : ''}</span><span>${formatReceiptDate(now)}</span></div>
-        <div class="meta-row"><span>Order: ${order.orderID}</span><span>${formatReceiptTime(now)}</span></div>
+
+        <div class="meta-row">
+          <span>
+            Revised Receipt${order.status === 'refunded' ? ' (REFUNDED)' : ''}
+          </span>
+          <span>${formatReceiptDate(now)}</span>
+        </div>
+
+        <div class="meta-row">
+          <span>Order: ${order.orderID}</span>
+          <span>${formatReceiptTime(now)}</span>
+        </div>
+
         <div>Customer Name: ${order.customerName}</div>
+
         <hr class="sep" />
+
         <table class="items">
-          <thead><tr><th>Item</th><th>Rate</th><th>Disc</th><th>Qty</th><th>Total</th></tr></thead>
-          <tbody>${itemRows}</tbody>
+          <colgroup>
+            <col class="col-item" />
+            <col class="col-rate" />
+            <col class="col-qty" />
+            <col class="col-subtotal" />
+            <col class="col-disc" />
+            <col class="col-total" />
+          </colgroup>
+
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Rate</th>
+              <th>Qty</th>
+              <th>Subtotal</th>
+              <th>Disc</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${itemRows}
+          </tbody>
         </table>
+
         <hr class="sep" />
-        <div class="totals-row grand"><span>Grand Total</span><span>${formatMoney(order.totalAmount)}</span></div>
-        <div class="totals-row"><span>Paid</span><span>${formatMoney(order.amountPaid)}</span></div>
-        <div class="totals-row"><span>Balance Due</span><span>${formatMoney(order.balanceDue)}</span></div>
+
+        <div class="totals-row grand">
+          <span>Grand Total</span>
+          <span>${formatMoney(order.totalAmount)}</span>
+        </div>
+
+        <div class="totals-row">
+          <span>Paid</span>
+          <span>${formatMoney(order.amountPaid)}</span>
+        </div>
+
+        <div class="totals-row">
+          <span>Balance Due</span>
+          <span>${formatMoney(order.balanceDue)}</span>
+        </div>
+
         <hr class="sep-solid" />
+
         <div class="footer">THANK YOU! VISIT AGAIN</div>
       </div>
-      ${editRows ? `<div class="edit-history"><h3>Edit History</h3><table><thead><tr><th>Item</th><th>Qty change</th><th>Action</th><th>By</th><th>When</th><th>Reason</th><th>Settlement</th></tr></thead><tbody>${editRows}</tbody></table></div>` : ''}
-      ${refundRows ? `<div class="edit-history"><h3>Refunds</h3><table><thead><tr><th>Amount</th><th>By</th><th>When</th><th>Reason</th></tr></thead><tbody>${refundRows}</tbody></table></div>` : ''}
+
+      ${
+        editRows
+          ? `
+            <div class="edit-history">
+              <h3>Edit History</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Action</th>
+                    <th>By</th>
+                    <th>When</th>
+                    <th>Reason</th>
+                    <th>Settlement</th>
+                  </tr>
+                </thead>
+                <tbody>${editRows}</tbody>
+              </table>
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        refundRows
+          ? `
+            <div class="edit-history">
+              <h3>Refunds</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Amount</th>
+                    <th>By</th>
+                    <th>When</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>${refundRows}</tbody>
+              </table>
+            </div>
+          `
+          : ''
+      }
     `);
   };
 

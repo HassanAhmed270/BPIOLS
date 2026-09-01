@@ -46,11 +46,11 @@ router.get('/api/orders', requireAuth, asyncHandler(async (req, res) => {
 
   const filter = search
     ? {
-        $or: [
-          { orderID: { $regex: escapeRegex(search), $options: 'i' } },
-          { customerName: { $regex: escapeRegex(search), $options: 'i' } },
-        ],
-      }
+      $or: [
+        { orderID: { $regex: escapeRegex(search), $options: 'i' } },
+        { customerName: { $regex: escapeRegex(search), $options: 'i' } },
+      ],
+    }
     : {};
 
   const data = await Order.find(filter);
@@ -274,6 +274,7 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       }
 
       const beforeOrder = order.toObject();
+      const beforeBalanceDue = order.balanceDue;
       const historyStartIdx = order.editHistory.length;
       if (isAdd) {
         await applyLineAddition(order, productID, qty, reason.trim(), req.user.username, session);
@@ -291,10 +292,23 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       }
       await order.save({ session });
 
-      // Keep the customer's embedded order summary (Stage 5) in sync,
-      // and credit the customer's running balance if this edit freed up
-      // an overpayment. No-ops harmlessly for a walk-in order, which has
-      // no matching Customer document to update.
+      // Stage 20: one delta against Customer.balance covers both ways
+      // this edit can move money — the order's own balanceDue growing
+      // (adding a line, more owed → balance goes down) or shrinking
+      // (reducing a line, less owed → balance goes up), plus
+      // creditGenerated (always credited for an edit, no cash-back
+      // option here). Because balance is a running signed total, this
+      // naturally pays down any debt the customer already had before
+      // building new credit — no separate "sweep old orders" step.
+      // Keeps the customer's embedded order summary (Stage 5) in sync
+      // too. No-ops harmlessly for a walk-in order, which has no
+      // matching Customer document to update.
+      const balanceDelta = computeOrderBalanceDelta({
+        beforeBalanceDue,
+        afterBalanceDue: order.balanceDue,
+        settlement: creditGenerated,
+        creditSettlement: true,
+      });
       const customerUpdate = {
         $set: {
           'orders.$.totalAmount': order.totalAmount,
@@ -304,10 +318,25 @@ router.post('/api/order/:orderID/edit', requireAuth, requireAdmin, asyncHandler(
       };
       if (creditGenerated > 0) {
         customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
-        customerUpdate.$inc = { creditBalance: creditGenerated };
       }
-      await Customer.updateOne({ customerName: order.customerName, 'orders.orderNo': order.orderID }, customerUpdate, { session });
+      if (balanceDelta !== 0) {
+        customerUpdate.$inc = { balance: balanceDelta };
+      }
+      const customerUpdateResult = await Customer.updateOne(
+        {
+          customerName: order.customerName,
+          'orders.orderNo': order.orderID,
+        },
+        customerUpdate,
+        { session }
+      );
 
+      if (customerUpdateResult.matchedCount !== 1) {
+        throw new AppError(
+          400,
+          `Customer balance/order history could not be updated for order "${order.orderID}".`
+        );
+      }
       await logAudit(
         {
           action: 'order.edited',
@@ -441,6 +470,7 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       }
 
       const beforeOrder = order.toObject();
+      const beforeBalanceDue = order.balanceDue;
       const refundedItems = [];
       const historyStartIdx = order.editHistory.length;
       let refundAmount = 0;
@@ -496,6 +526,18 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       );
       refund = created[0];
 
+      // Stage 20: same one-delta pattern as the edit handler above — the
+      // order's own balanceDue shrinking (refunded items lower the
+      // total = less owed, regardless of the cash/credit choice) always
+      // moves balance; creditGenerated is only folded in when the admin
+      // picked "credit" (creditGenerated is already 0 when they picked
+      // "cash", so this stays correct either way).
+      const balanceDelta = computeOrderBalanceDelta({
+        beforeBalanceDue,
+        afterBalanceDue: order.balanceDue,
+        settlement: creditGenerated,
+        creditSettlement: true,
+      });
       const customerUpdate = {
         $set: {
           'orders.$.totalAmount': order.totalAmount,
@@ -505,9 +547,11 @@ router.post('/api/order/:orderID/refund', requireAuth, requireAdmin, asyncHandle
       };
       if (creditGenerated > 0) {
         customerUpdate.$set['orders.$.creditGenerated'] = creditGenerated;
-        customerUpdate.$inc = { creditBalance: creditGenerated };
       }
-      await Customer.updateOne({ customerName: order.customerName, 'orders.orderNo': order.orderID }, customerUpdate, { session });
+      if (balanceDelta !== 0) {
+        customerUpdate.$inc = { balance: balanceDelta };
+      }
+      
 
       await logAudit(
         {

@@ -4,7 +4,7 @@ import Sidebar from '../components/Sidebar';
 import { useAuth } from '../lib/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { api } from '../lib/api';
-import { roundMoney, formatMoney } from '../lib/money';
+import { roundMoney, formatMoney, formatMoneyShort } from '../lib/money';
 import { printReceipt, buildReceiptHtml } from '../lib/print';
 import { SHOP_NAME, SHOP_ADDRESS, SHOP_PHONE } from '../lib/shopInfo';
 import { isWebUSBSupported, getPairedPrinter, pairThermalPrinter, tryThermalPrint } from '../lib/thermalPrint';
@@ -613,10 +613,10 @@ export default function Billing() {
       const rate = item.quantity > 0 ? net / item.quantity : item.unitPrice;
       return {
         itemName: item.itemName,
-        retailLabel: formatMoney(item.unitPrice),
-        rateLabel: formatMoney(rate),
+        retailLabel: formatMoneyShort(item.unitPrice),
+        rateLabel: formatMoneyShort(rate),
         qty: item.quantity,
-        totalLabel: formatMoney(net),
+        totalLabel: formatMoneyShort(net),
       };
     });
 
