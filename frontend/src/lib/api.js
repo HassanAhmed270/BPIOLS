@@ -127,7 +127,7 @@ export const api = {
   getDashboard: (range = 'month') => request(`/dashboard/load?range=${encodeURIComponent(range)}`),
 
   // Exports (Stage 10) — these return CSV, not JSON, so they bypass the
-  // shared `request()` helper (which assumes JSON/text-parsed bodies) and
+  // shared `request()` helper (which assumes JSON/text-parsed bodies) anda
   // are triggered as a real browser download instead.
   downloadExport: async (type, range, format = 'csv') => {
     const params = new URLSearchParams();

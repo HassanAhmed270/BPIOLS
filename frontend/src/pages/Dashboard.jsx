@@ -166,22 +166,27 @@ export default function Dashboard() {
               <thead className="bg-brand-green text-white">
                 <tr>
                   <th className="px-4 py-2 border border-gray-200">Product Code</th>
+                  <th className="px-4 py-2 border border-gray-200">Product Name</th>
                   <th className="px-4 py-2 border border-gray-200">Quantity Sold</th>
                   <th className="px-4 py-2 border border-gray-200">Revenue</th>
                 </tr>
               </thead>
               <tbody>
+                
+                
                 {dashboard?.productSales?.length ? (
                   dashboard.productSales.map((p) => (
                     <tr key={p._id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 border border-gray-200">{p._id}</td>
+                      <td className="px-4 py-2 border border-gray-200">{p.productName}</td>
                       <td className="px-4 py-2 border border-gray-200">{p.totalQuantity}</td>
                       <td className="px-4 py-2 border border-gray-200">{formatMoney(p.totalRevenue)}</td>
                     </tr>
+                    
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={3} className="px-4 py-3 text-center text-gray-400">
+                    <td colSpan={4} className="px-4 py-3 text-center text-gray-400">
                       No product sales yet {RANGE_LABEL[range]}
                     </td>
                   </tr>

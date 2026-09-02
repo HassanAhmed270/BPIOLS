@@ -1,4 +1,3 @@
-// Stage 3 — split out of main.js verbatim, no logic changes.
 const express = require('express');
 const Customer = require('../models/Customers');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
@@ -7,9 +6,9 @@ const { escapeRegex, parsePagination, sortAndPaginate } = require('../lib/query'
 const { roundMoney } = require('../lib/money');
 const { logAudit } = require('../lib/auditLog');
 const { isValidEmail, isValidPhone } = require('../lib/validators');
+const { generateCustomerID } = require('../lib/customerID');
 
 const router = express.Router();
-
 
 router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
   const { search = '', sortBy = 'customerName', sortDir = 'asc' } = req.query;
@@ -17,24 +16,26 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
 
   const filter = search
     ? {
-        $or: [
-          { customerName: { $regex: escapeRegex(search), $options: 'i' } },
-          { mobileNo: { $regex: escapeRegex(search), $options: 'i' } },
-          { email: { $regex: escapeRegex(search), $options: 'i' } },
-        ],
-      }
+      $or: [
+        { customerID: { $regex: escapeRegex(search), $options: 'i' } },
+        { customerName: { $regex: escapeRegex(search), $options: 'i' } },
+        { mobileNo: { $regex: escapeRegex(search), $options: 'i' } },
+        { email: { $regex: escapeRegex(search), $options: 'i' } },
+      ],
+    }
     : {};
 
-  const data = await Customer.find(filter, 'customerName mobileNo emergencyMobile email address orders accountBalance');
+  const data = await Customer.find(
+    filter,
+    'customerID customerName mobileNo emergencyMobile email address orders accountBalance'
+  );
+
   const mapped = data.map((c) => {
-    // Single source of truth: accountBalance (positive = customer owes
-    // us, negative = store credit — see models/Customers.js). The two
-    // figures below are just its two non-negative faces, so they can
-    // never disagree with each other the way two separately-stored
-    // fields could.
     const accountBalance = roundMoney(c.accountBalance || 0);
+
     return {
       _id: c._id,
+      customerID: c.customerID,
       customerName: c.customerName,
       mobileNo: c.mobileNo,
       emergencyMobile: c.emergencyMobile,
@@ -43,66 +44,127 @@ router.get('/api/customers', requireAuth, asyncHandler(async (req, res) => {
       orders: c.orders,
       accountBalance,
       totalBalanceDue: Math.max(0, accountBalance),
-      // Stage 5 — scope extended from routes/customers.js (not listed in
-      // production.md's Stage 5 Affected areas) so the store-credit ledger
-      // is actually visible somewhere in the app, mirroring Suppliers.jsx.
       creditBalance: Math.max(0, roundMoney(-accountBalance)),
     };
   });
 
-  const { data: customers, total } = sortAndPaginate(mapped, { sortBy, sortDir, page, limit });
+  const { data: customers, total } = sortAndPaginate(mapped, {
+    sortBy,
+    sortDir,
+    page,
+    limit,
+  });
+
   res.json({ success: true, customers, total, page, limit });
 }));
 
-// Stage 14 — upsert-style creation, distinct from updateCustomer (which
-// 404s if the customer doesn't exist). Needed so a walk-in order can be
-// converted to a real customer inline during an exchange without a
-// separate "create customer first" round trip elsewhere in the app.
-// If a customer with this name already exists, it's returned as-is
-// (existing details are never silently overwritten here).
 router.post('/customer/create', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  let { customerName, mobileNo, emergencyMobile, email, address } = req.body;
+ let {
+    customerName,
+    mobileNo,
+    emergencyMobile,
+    email,
+    address,
+  } = req.body;
 
   if (!customerName || customerName.trim() === '') {
-    return res.status(400).json({ success: false, message: 'Customer name is required' });
-  }
-
-  customerName = customerName.trim().replace(/\s+/g, ' ');
-  mobileNo = mobileNo ? mobileNo.trim() : '';
-  emergencyMobile = emergencyMobile ? emergencyMobile.trim() : '';
-  email = email ? email.trim() : '';
-  address = address ? address.trim() : '';
-
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: 'That email address doesn\'t look right.' });
-  }
-  if (!isValidPhone(mobileNo) || !isValidPhone(emergencyMobile)) {
-    return res.status(400).json({ success: false, message: 'That phone number doesn\'t look right.' });
-  }
-
-  let customer = await Customer.findOne({ customerName });
-  let created = false;
-  if (!customer) {
-    customer = await Customer.create({ customerName, mobileNo, emergencyMobile, email, address });
-    created = true;
-    await logAudit({
-      action: 'customer.created',
-      actor: { username: req.user.username, role: req.user.role },
-      targetType: 'customer',
-      targetId: customerName,
-      before: null,
-      after: customer.toObject(),
+    return res.status(400).json({
+      success: false,
+      message: 'Customer name is required',
     });
   }
 
-  res.status(created ? 201 : 200).json({ success: true, created, customer });
+  customerName = customerName.trim().replace(/\s+/g, ' ');
+  mobileNo = mobileNo ? mobileNo.trim() : '';
+  emergencyMobile = emergencyMobile ? emergencyMobile.trim() : '';
+  email = email ? email.trim() : '';
+  address = address ? address.trim() : '';
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({
+      success: false,
+      message: "That email address doesn't look right.",
+    });
+  }
+
+  if (!isValidPhone(mobileNo) || !isValidPhone(emergencyMobile)) {
+    return res.status(400).json({
+      success: false,
+      message: "That phone number doesn't look right.",
+    });
+  }
+
+  const existingCustomer = await Customer.findOne({ customerName });
+
+  if (existingCustomer) {
+    return res.status(400).json({
+      success: false,
+      message: 'Customer already exists',
+    });
+  }
+
+  // Generate the next customer ID on the server.
+  const lastCustomer = await Customer.findOne({})
+    .sort({ customerID: -1 })
+    .select('customerID')
+    .lean();
+
+  let nextNumber = 1;
+
+  if (lastCustomer?.customerID) {
+    const lastNumber = parseInt(
+      lastCustomer.customerID.replace('#', ''),
+      10
+    );
+
+    if (Number.isFinite(lastNumber)) {
+      nextNumber = lastNumber + 1;
+    }
+  }
+
+  const customerID = `#${String(nextNumber).padStart(4, '0')}`;
+
+  const newCustomer = new Customer({
+    customerID,
+    customerName,
+    mobileNo,
+    emergencyMobile,
+    email,
+    address,
+    orders: [],
+    accountBalance: 0,
+  });
+
+  await newCustomer.save();
+
+  res.status(201).json({
+    success: true,
+    message: 'Customer added successfully',
+    customer: newCustomer,
+  });
 }));
 
+
 router.post('/customer/updateCustomer', requireAuth, asyncHandler(async (req, res) => {
-  let { customerName, mobileNo, emergencyMobile, email, address } = req.body;
+  console.log('\n========== CUSTOMER UPDATE START ==========');
+  console.log('[1] Request body:', req.body);
+
+  let {
+    customerName,
+    mobileNo,
+    emergencyMobile,
+    email,
+    address,
+    paymentAmount,
+  } = req.body;
 
   if (!customerName || customerName.trim() === '') {
-    return res.status(400).json({ success: false, message: 'Customer name is required' });
+    console.log('[ERROR] Customer name missing');
+
+    return res.status(400).json({
+      success: false,
+      message: 'Customer name is required',
+    });
   }
 
   customerName = customerName.trim().replace(/\s+/g, ' ');
@@ -111,50 +173,193 @@ router.post('/customer/updateCustomer', requireAuth, asyncHandler(async (req, re
   email = email ? email.trim() : '';
   address = address ? address.trim() : '';
 
+  console.log('[2] Normalized customer:', customerName);
+  console.log('[3] paymentAmount received:', paymentAmount);
+  console.log('[3] paymentAmount type:', typeof paymentAmount);
+
   if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: 'That email address doesn\'t look right.' });
+    console.log('[ERROR] Invalid email');
+
+    return res.status(400).json({
+      success: false,
+      message: 'That email address doesn\'t look right.',
+    });
   }
-  if (!isValidPhone(mobileNo) || !isValidPhone(emergencyMobile)) {
-    return res.status(400).json({ success: false, message: 'That phone number doesn\'t look right.' });
+
+ 
+
+  const amount =
+    paymentAmount === undefined || paymentAmount === ''
+      ? 0
+      : Number(paymentAmount);
+
+  console.log('[4] Parsed payment amount:', amount);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    console.log('[ERROR] Invalid payment amount:', amount);
+
+    return res.status(400).json({
+      success: false,
+      message: 'Payment amount must be a valid non-negative amount.',
+    });
   }
 
   const beforeCustomer = await Customer.findOne({ customerName });
-  const updatedCustomer = await Customer.findOneAndUpdate(
-    { customerName },
-    { $set: { mobileNo, emergencyMobile, email, address } },
-    { new: true }
+
+  if (!beforeCustomer) {
+    console.log('[ERROR] Customer not found:', customerName);
+
+    return res.status(404).json({
+      success: false,
+      message: 'Customer not found',
+    });
+  }
+
+  console.log('[5] Customer BEFORE update:', {
+    id: beforeCustomer._id.toString(),
+    name: beforeCustomer.customerName,
+    accountBalance: beforeCustomer.accountBalance,
+  });
+
+  // Positive balance = customer owes us.
+  // Payment reduces that balance.
+  //
+  // Negative balance = customer has credit.
+  // Payment consumes that credit.
+  const rawBalance = beforeCustomer.accountBalance;
+
+  const currentBalance = roundMoney(
+    Number(rawBalance) || 0
   );
 
+  console.log('[BALANCE 1] Mongo value BEFORE update:', rawBalance);
+  console.log('[BALANCE 2] Mongo value type:', typeof rawBalance);
+  console.log('[BALANCE 3] Parsed current balance:', currentBalance);
+  console.log('[BALANCE 4] Payment amount:', amount);
+  console.log('[BALANCE 5] Payment amount type:', typeof amount);
+
+  const newBalance =
+    currentBalance >= 0
+      ? roundMoney(currentBalance - amount)
+      : roundMoney(currentBalance + amount);
+
+  console.log('[BALANCE 6] CALCULATED NEW BALANCE:', newBalance);
+
+  console.log('[BALANCE 7] About to write to MongoDB:', {
+    customerId: beforeCustomer._id.toString(),
+    customerName: beforeCustomer.customerName,
+    accountBalance: newBalance,
+  });
+
+  const updatedCustomer = await Customer.findOneAndUpdate(
+    { _id: beforeCustomer._id },
+    {
+      $set: {
+        mobileNo,
+        emergencyMobile,
+        email,
+        address,
+        accountBalance: newBalance,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  console.log('[BALANCE 8] findOneAndUpdate returned:', {
+    id: updatedCustomer?._id?.toString(),
+    customerName: updatedCustomer?.customerName,
+    accountBalance: updatedCustomer?.accountBalance,
+  });
+
   if (!updatedCustomer) {
-    return res.status(404).json({ success: false, message: 'Customer not found' });
+    console.log('[ERROR] MongoDB update returned null');
+
+    return res.status(404).json({
+      success: false,
+      message: 'Customer could not be updated',
+    });
   }
+
+  const verifyCustomer = await Customer.findById(
+    beforeCustomer._id
+  )
+    .select('_id customerName accountBalance')
+    .lean();
+
+  console.log(
+    '[BALANCE 9] DIRECT MongoDB READ AFTER UPDATE:',
+    verifyCustomer
+  );
+
+  console.log('[BALANCE 10] Expected balance:', newBalance);
+  console.log(
+    '[BALANCE 11] Actual Mongo balance:',
+    verifyCustomer?.accountBalance
+  );
+
+  console.log(
+    '[BALANCE 12] MATCH:',
+    Number(verifyCustomer?.accountBalance) === Number(newBalance)
+  );
+
+  console.log('========== BALANCE DEBUG END ==========\n');
 
   await logAudit({
     action: 'customer.updated',
-    actor: { username: req.user.username, role: req.user.role },
+    actor: {
+      username: req.user.username,
+      role: req.user.role,
+    },
     targetType: 'customer',
-    targetId: customerName,
-    before: beforeCustomer ? beforeCustomer.toObject() : null,
+    targetId: beforeCustomer.customerName,
+    before: beforeCustomer.toObject(),
     after: updatedCustomer.toObject(),
   });
 
-  res.status(200).json({ success: true, message: 'Customer updated successfully', customer: updatedCustomer });
+  console.log('[9] Sending response:', {
+    accountBalance: updatedCustomer.accountBalance,
+  });
+
+  console.log('========== CUSTOMER UPDATE END ==========\n');
+
+  res.status(200).json({
+    success: true,
+    message: 'Customer updated successfully',
+    customer: updatedCustomer,
+  });
 }));
 
 router.post('/customer/deleteCustomer', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { customerName, force } = req.body;
+
   if (!customerName || customerName.trim() === '') {
-    return res.status(400).json({ success: false, message: 'Customer name is required' });
+    return res.status(400).json({
+      success: false,
+      message: 'Customer name is required',
+    });
   }
 
   const customer = await Customer.findOne({
-    customerName: { $regex: new RegExp(`^${customerName.trim()}$`, 'i') },
+    customerName: {
+      $regex: new RegExp(`^${customerName.trim()}$`, 'i'),
+    },
   });
+
   if (!customer) {
-    return res.status(404).json({ success: false, message: 'Customer not found' });
+    return res.status(404).json({
+      success: false,
+      message: 'Customer not found',
+    });
   }
 
-  const totalBalanceDue = Math.max(0, roundMoney(customer.accountBalance || 0));
+  const totalBalanceDue = Math.max(
+    0,
+    roundMoney(customer.accountBalance || 0)
+  );
+
   if (totalBalanceDue > 0 && force !== true) {
     return res.status(409).json({
       success: false,
@@ -164,41 +369,81 @@ router.post('/customer/deleteCustomer', requireAuth, requireAdmin, asyncHandler(
     });
   }
 
-  const deletedCustomer = await Customer.findOneAndDelete({ _id: customer._id });
+  const deletedCustomer = await Customer.findOneAndDelete({
+    _id: customer._id,
+  });
 
   await logAudit({
     action: 'customer.deleted',
-    actor: { username: req.user.username, role: req.user.role },
+    actor: {
+      username: req.user.username,
+      role: req.user.role,
+    },
     targetType: 'customer',
     targetId: deletedCustomer.customerName,
     before: deletedCustomer.toObject(),
     after: null,
   });
 
-  res.status(200).json({ success: true, message: 'Customer deleted successfully', customer: deletedCustomer });
+  res.status(200).json({
+    success: true,
+    message: 'Customer deleted successfully',
+    customer: deletedCustomer,
+  });
 }));
 
 router.post('/customer/undoCustomer', requireAuth, asyncHandler(async (req, res) => {
-  const { customerName, mobileNo, emergencyMobile, email, address } = req.body;
+  const {
+    customerID,
+    customerName,
+    mobileNo,
+    emergencyMobile,
+    email,
+    address,
+    orders,
+    accountBalance,
+  } = req.body;
 
   const existing = await Customer.findOne({ customerName });
+
   if (existing) {
-    return res.status(400).json({ success: false, message: 'Customer already exists.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Customer already exists.',
+    });
   }
 
-  const newCustomer = new Customer({ customerName, mobileNo, emergencyMobile, email, address });
+  const newCustomer = new Customer({
+    customerID,
+    customerName,
+    mobileNo,
+    emergencyMobile,
+    email,
+    address,
+    orders: orders || [],
+    accountBalance: accountBalance || 0,
+  });
+
   await newCustomer.save();
 
   await logAudit({
     action: 'customer.restored',
-    actor: { username: req.user.username, role: req.user.role },
+    actor: {
+      username: req.user.username,
+      role: req.user.role,
+    },
     targetType: 'customer',
-    targetId: customerName,
+    targetId: customerID,
     before: null,
     after: newCustomer.toObject(),
   });
 
-  res.status(200).json({ success: true, message: 'Customer restored successfully' });
+  res.status(200).json({
+    success: true,
+    message: 'Customer restored successfully',
+    customer: newCustomer,
+  });
 }));
 
 module.exports = router;
+

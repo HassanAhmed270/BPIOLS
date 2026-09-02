@@ -35,11 +35,11 @@ router.get('/api/suppliers', requireAuth, asyncHandler(async (req, res) => {
 
   const filter = search
     ? {
-        $or: [
-          { supplierName: { $regex: escapeRegex(search), $options: 'i' } },
-          { contactPerson: { $regex: escapeRegex(search), $options: 'i' } },
-        ],
-      }
+      $or: [
+        { supplierName: { $regex: escapeRegex(search), $options: 'i' } },
+        { contactPerson: { $regex: escapeRegex(search), $options: 'i' } },
+      ],
+    }
     : {};
 
   const suppliers = await Supplier.find(filter);
@@ -67,39 +67,259 @@ router.get('/api/suppliers', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 router.post('/api/supplier', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  let { supplierName, contactPerson, phone, email, address } = req.body;
+  let {
+    supplierName,
+    contactPerson,
+    phone,
+    email,
+    address,
+    amountPaid,
+  } = req.body;
 
   if (!supplierName || !supplierName.trim()) {
-    return res.status(400).json({ success: false, message: 'Supplier name is required.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Supplier name is required.',
+    });
   }
+
   supplierName = supplierName.trim().replace(/\s+/g, ' ');
   phone = phone ? phone.trim() : '';
   email = email ? email.trim() : '';
 
   if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: 'That email address doesn\'t look right.' });
-  }
-  if (!isValidPhone(phone)) {
-    return res.status(400).json({ success: false, message: 'That phone number doesn\'t look right.' });
+    return res.status(400).json({
+      success: false,
+      message: "That email address doesn't look right.",
+    });
   }
 
-  const beforeSupplier = await Supplier.findOne({ supplierName });
-  const supplier = await Supplier.findOneAndUpdate(
-    { supplierName },
-    { supplierName, contactPerson: contactPerson || '', phone, email, address: address || '' },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+  if (!isValidPhone(phone)) {
+    return res.status(400).json({
+      success: false,
+      message: "That phone number doesn't look right.",
+    });
+  }
+
+  // Payment / balance adjustment is optional.
+  // Blank or omitted means no adjustment.
+  const hasAmountPaid =
+    amountPaid !== undefined &&
+    amountPaid !== null &&
+    amountPaid !== '';
+
+  if (
+    hasAmountPaid &&
+    (
+      !Number.isFinite(Number(amountPaid)) ||
+      Number(amountPaid) < 0
+    )
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid amount paid.',
+    });
+  }
+
+  const adjustmentAmount = roundMoney(
+    hasAmountPaid ? Number(amountPaid) : 0
   );
 
-  await logAudit({
-    action: beforeSupplier ? 'supplier.updated' : 'supplier.created',
-    actor: { username: req.user.username, role: req.user.role },
-    targetType: 'supplier',
-    targetId: supplierName,
-    before: beforeSupplier ? beforeSupplier.toObject() : null,
-    after: supplier.toObject(),
-  });
+  const beforeSupplier = await Supplier.findOne({ supplierName });
 
-  res.status(200).json({ success: true, message: 'Supplier saved successfully', supplier });
+  // ---------------------------------------------------------
+  // ADD SUPPLIER
+  // ---------------------------------------------------------
+  // When there is no existing supplier, amountPaid is ignored.
+  // A new supplier must always start with no purchases and no
+  // manually-created opening balance.
+  if (!beforeSupplier) {
+    const supplier = await Supplier.findOneAndUpdate(
+      { supplierName },
+      {
+        supplierName,
+        contactPerson: contactPerson || '',
+        phone,
+        email,
+        address: address || '',
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    await logAudit({
+      action: 'supplier.created',
+      actor: {
+        username: req.user.username,
+        role: req.user.role,
+      },
+      targetType: 'supplier',
+      targetId: supplierName,
+      before: null,
+      after: supplier.toObject(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Supplier saved successfully',
+      supplier,
+    });
+  }
+
+  // ---------------------------------------------------------
+  // EDIT EXISTING SUPPLIER
+  // ---------------------------------------------------------
+  // Supplier details are updated normally.
+  // The adjustment is applied ONLY to existing outstanding
+  // purchases. No fake purchase is created.
+  //
+  // creditBalance is deliberately NOT changed.
+  // ---------------------------------------------------------
+
+  const beforeSnapshot = beforeSupplier.toObject();
+
+  const session = await mongoose.startSession();
+
+  let supplier;
+
+  try {
+    await session.withTransaction(async () => {
+      supplier = await Supplier.findOne({
+        _id: beforeSupplier._id,
+      }).session(session);
+
+      if (!supplier) {
+        throw new AppError(404, 'Supplier not found.');
+      }
+
+      // Update normal supplier details exactly as before.
+      supplier.supplierName = supplierName;
+      supplier.contactPerson = contactPerson || '';
+      supplier.phone = phone;
+      supplier.email = email;
+      supplier.address = address || '';
+
+      // -----------------------------------------------------
+      // Apply payment to EXISTING outstanding purchases.
+      //
+      // Oldest outstanding purchase is paid first.
+      // -----------------------------------------------------
+      let remainingAdjustment = adjustmentAmount;
+
+      if (remainingAdjustment > 0) {
+        for (const purchase of supplier.purchases) {
+          if (remainingAdjustment <= 0) {
+            break;
+          }
+
+          const currentBalance = roundMoney(
+            purchase.balanceDue || 0
+          );
+
+          if (currentBalance <= 0) {
+            continue;
+          }
+
+          const paymentForPurchase = roundMoney(
+            Math.min(currentBalance, remainingAdjustment)
+          );
+
+          purchase.balanceDue = roundMoney(
+            currentBalance - paymentForPurchase
+          );
+
+          purchase.amountPaid = roundMoney(
+            (purchase.amountPaid || 0) + paymentForPurchase
+          );
+
+          remainingAdjustment = roundMoney(
+            remainingAdjustment - paymentForPurchase
+          );
+        }
+      }
+
+      await supplier.save({ session });
+
+      // Audit the actual balance adjustment.
+      if (adjustmentAmount > 0) {
+        await logAudit(
+          {
+            action: 'supplier.payment.adjusted',
+            actor: {
+              username: req.user.username,
+              role: req.user.role,
+            },
+            targetType: 'supplier',
+            targetId: supplier.supplierName,
+
+            before: {
+              supplierName: beforeSupplier.supplierName,
+              contactPerson: beforeSupplier.contactPerson,
+              phone: beforeSupplier.phone,
+              email: beforeSupplier.email,
+              address: beforeSupplier.address,
+              totalBalanceDue: roundMoney(
+                beforeSupplier.purchases.reduce(
+                  (sum, purchase) => sum + (purchase.balanceDue || 0),
+                  0
+                )
+              ),
+              creditBalance: roundMoney(beforeSupplier.creditBalance || 0),
+            },
+
+            after: {
+              supplierName: supplier.supplierName,
+              contactPerson: supplier.contactPerson,
+              phone: supplier.phone,
+              email: supplier.email,
+              address: supplier.address,
+
+              adjustmentAmount,
+              totalBalanceDue: roundMoney(
+                supplier.purchases.reduce(
+                  (sum, purchase) => sum + (purchase.balanceDue || 0),
+                  0
+                )
+              ),
+              creditBalance: roundMoney(supplier.creditBalance || 0),
+              unappliedAmount: remainingAdjustment,
+            },
+          },
+          session
+        );
+      } else {
+        await logAudit(
+          {
+            action: 'supplier.updated',
+            actor: {
+              username: req.user.username,
+              role: req.user.role,
+            },
+            targetType: 'supplier',
+            targetId: supplier.supplierName,
+            before: beforeSnapshot,
+            after: supplier.toObject(),
+          },
+          session
+        );
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return res.status(200).json({
+    success: true,
+    message:
+      adjustmentAmount > 0
+        ? 'Supplier updated and payment applied successfully.'
+        : 'Supplier saved successfully',
+    supplier,
+    amountPaid: adjustmentAmount,
+  });
 }));
 
 router.delete('/supplier/:supplierName', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
