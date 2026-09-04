@@ -469,7 +469,10 @@ router.post('/supplier/purchase', requireAuth, asyncHandler(async (req, res) => 
         // move" guard POST /api/product uses. buyingPriceHistory (above)
         // is completely separate and always updates regardless.
         if (item.sellingPrice !== undefined) {
-          const currentSellingPrice = roundMoney(getLatestSellingPrice(product));
+          // getLatestSellingPrice may be null (no price set yet) — compare
+          // directly rather than routing null through roundMoney(), which
+          // would silently turn "unset" into 0 and mask a real change.
+          const currentSellingPrice = getLatestSellingPrice(product);
           if (item.sellingPrice > 0 && item.sellingPrice !== currentSellingPrice) {
             product.sellingPriceHistory.push({ price: item.sellingPrice, date: new Date() });
           }

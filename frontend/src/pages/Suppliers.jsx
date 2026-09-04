@@ -365,7 +365,7 @@ export default function Suppliers() {
 
       if (isNaN(sp) || sp < 0) {
         toast.error(
-          'Selling price must be a valid non-negative number, or left blank to leave it unchanged.'
+          'Retail price Optional'
         );
         return;
       }
@@ -1026,7 +1026,9 @@ export default function Suppliers() {
                   <p className="text-xs text-gray-500 mb-1">
                     Previous retail:{' '}
                     <span className="font-medium text-gray-700">
-                      {formatMoney(previousSellingPrice ?? 0)}
+                      {previousSellingPrice == null
+                        ? 'Not set'
+                        : formatMoney(previousSellingPrice)}
                     </span>
                   </p>
                 )}
@@ -1087,12 +1089,7 @@ export default function Suppliers() {
                 </button>
 
                 <p className="text-xs text-gray-500 mt-1">
-                  Increases the product's stock immediately and logs
-                  what we still owe the supplier if not paid in full.
-                  Paying more than owed is recorded as supplier credit
-                  and applied automatically to their next purchase.
-                  Selling price is optional — leave it blank to keep
-                  the product's current customer-facing price.
+                  Optional
                 </p>
               </div>
             </form>

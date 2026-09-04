@@ -405,7 +405,10 @@ export default function Products() {
       productId: p.productID,
       productName: p.productName,
       category: p.category,
-      price: p.price ?? 0,
+      // Preserve "no selling price" through delete → undo — don't
+      // coerce a genuinely unset price to 0 here, or restoring the
+      // product would give it a real Rs 0 price it never had.
+      price: p.price ?? '',
       supplierId: p.supplierId || NO_SUPPLIER,
       lowStockThreshold: p.lowStockThreshold ?? 10,
       reason: '',
@@ -621,7 +624,11 @@ export default function Products() {
                               </td>
 
                               <td className="py-2 px-3">
-                                {formatMoney(p.price ?? 0)}
+                                {p.price == null ? (
+                                  <span className="text-gray-400">—</span>
+                                ) : (
+                                  formatMoney(p.price)
+                                )}
                               </td>
 
                               <td
@@ -793,16 +800,16 @@ export default function Products() {
                       >
                         <div>
                           <label className="block mb-1 font-medium">
-                            Selling Price
+                            Retail Price
                           </label>
 
                           {isAdmin && mode === 'update' && (
                             <p className="text-xs text-gray-500 mb-1">
                               Previous:{' '}
                               <span className="font-medium text-gray-700">
-                                {formatMoney(
-                                  previousPrice ?? 0
-                                )}
+                                {previousPrice == null
+                                  ? 'Not set'
+                                  : formatMoney(previousPrice)}
                               </span>
                             </p>
                           )}
@@ -818,9 +825,13 @@ export default function Products() {
                                 price: e.target.value,
                               })
                             }
-                            placeholder="Enter selling price"
+                            placeholder="Optional"
                             className="border rounded px-3 py-2 w-full"
                           />
+                          <p className="text-xs text-gray-400 mt-1">
+                            Optional. Leave blank to clear it — it will
+                            not be treated as Rs 0.
+                          </p>
                         </div>
 
                         {mode === 'add' && (

@@ -380,7 +380,11 @@ export default function Billing() {
 
   const handleSelectProduct = (product) => {
     setSelectedProductId(product.productID);
-    const currentPrice = roundMoney(product.price ?? 0);
+    // No catalog selling price set — leave both fields blank instead of
+    // defaulting to 0, so the cashier has to enter a real rate rather
+    // than silently ringing the item up for free.
+    const hasCatalogPrice = product.price != null;
+    const currentPrice = hasCatalogPrice ? roundMoney(product.price) : '';
     setItemForm({
       productId: product.productID,
       productName: product.productName,
@@ -398,13 +402,17 @@ export default function Billing() {
     }
 
     const quantity = parseInt(itemForm.quantity);
-    const retailPrice = roundMoney(itemForm.retailPrice);
+    // Retail Price is a disabled, catalog-driven field — the cashier
+    // never types into it directly. When the product has no catalog
+    // selling price at all, itemForm.retailPrice is '' (see
+    // handleSelectProduct) rather than a real number, so there's no
+    // reference price to require or cap the sale against.
+    const hasRetailPrice = itemForm.retailPrice !== '' && itemForm.retailPrice != null;
+    const retailPrice = hasRetailPrice ? roundMoney(itemForm.retailPrice) : null;
     const unitPrice = roundMoney(itemForm.unitPrice);
 
     if (
       !itemForm.productName ||
-      !Number.isFinite(retailPrice) ||
-      retailPrice < 0 ||
       !Number.isFinite(unitPrice) ||
       unitPrice < 0 ||
       !Number.isInteger(quantity) ||
@@ -414,10 +422,16 @@ export default function Billing() {
       return;
     }
 
-    if (unitPrice > retailPrice) {
+    if (retailPrice !== null && unitPrice > retailPrice) {
       toast.error('Unit Price cannot be greater than Retail Price.');
       return;
     }
+
+    // From here on, retailPrice must be a real number: the receipt's
+    // "Retail" column and Order.retailPrice (required, min 0) both need
+    // one. When there's no catalog price to show, mirror the rate the
+    // cashier actually charged rather than recording a false Rs 0.
+    const effectiveRetailPrice = retailPrice !== null ? retailPrice : unitPrice;
 
     const product = products.find(
       (p) => p.productID === selectedProductId
@@ -475,7 +489,7 @@ export default function Billing() {
             productCode:
               selectedProductId.replace('#', ''),
             itemName: itemForm.productName,
-            retailPrice,
+            retailPrice: effectiveRetailPrice,
             unitPrice,
             quantity,
             offline: true,
@@ -527,7 +541,7 @@ export default function Billing() {
         productCode:
           selectedProductId.replace('#', ''),
         itemName: itemForm.productName,
-        retailPrice,
+        retailPrice: effectiveRetailPrice,
         unitPrice,
         quantity,
       },
@@ -1276,17 +1290,18 @@ export default function Billing() {
                               </td>
 
                               <td className="p-2">
-                                {formatMoney(
-                                  product.price ??
-                                  0
+                                {product.price == null ? (
+                                  <span className="text-gray-400">—</span>
+                                ) : (
+                                  formatMoney(product.price)
                                 )}
                               </td>
 
                               <td className="p-2">
-                                {formatMoney(
-                                  (product.price ??
-                                    0) *
-                                  available
+                                {product.price == null ? (
+                                  <span className="text-gray-400">—</span>
+                                ) : (
+                                  formatMoney(product.price * available)
                                 )}
                               </td>
                             </tr>

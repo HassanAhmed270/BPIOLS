@@ -256,14 +256,17 @@ router.post('/billing/orderDetails', requireAuth, asyncHandler(async (req, res) 
           throw new AppError(400, `Product ${item.productID} no longer exists.`);
         }
 
-      const currentRetailPrice = roundMoney(getLatestSellingPrice(product));
+      // null means the product has no catalog selling price set at all —
+      // there's nothing to have "changed since you added it", so the
+      // staleness check only applies once a real reference price exists.
+      const currentRetailPrice = getLatestSellingPrice(product);
 const capturedRetailPrice = roundMoney(item.retailPrice);
 const sellingRate = roundMoney(item.unitPrice);
 
 // Retail price is the database/reference price.
 // The cashier's selling rate may intentionally be lower or otherwise
 // different from the retail price.
-if (Math.abs(currentRetailPrice - capturedRetailPrice) > 0.01) {
+if (currentRetailPrice !== null && Math.abs(currentRetailPrice - capturedRetailPrice) > 0.01) {
   logger.warn(
     {
       productID: item.productID,
@@ -286,7 +289,12 @@ const amount = roundMoney(sellingRate * item.quantity);
 verifiedProducts.push({
   productID: item.productID,
   quantity: item.quantity,
-  retailPrice: currentRetailPrice,
+  // Order.retailPrice is a required field (it's the receipt's "Retail"
+  // column) — when the product has no catalog price at all, fall back
+  // to whatever the cashier captured/charged so the order still saves
+  // and the receipt shows a real number instead of failing to record
+  // a reference price that was never set.
+  retailPrice: currentRetailPrice !== null ? currentRetailPrice : capturedRetailPrice,
   unitPrice: sellingRate,
   amount,
 });
