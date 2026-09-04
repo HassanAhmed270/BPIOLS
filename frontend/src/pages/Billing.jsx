@@ -573,47 +573,35 @@ export default function Billing() {
     }
 
     try {
-      let candidate =
-        '#' +
-        Math.floor(Math.random() * 10000)
-          .toString()
-          .padStart(4, '0');
-
-      for (let i = 0; i < 20; i++) {
-        try {
-          const data =
-            await api.getUniqueOrderId(candidate);
-
-          if (!data.exists) break;
-
-          const num =
-            (parseInt(candidate.slice(1)) + 1) %
-            10000;
-
-          candidate =
-            '#' + num.toString().padStart(4, '0');
-        } catch (err) {
-          if (
-            offlineSyncEnabled &&
-            isNetworkError(err)
-          ) {
-            break;
-          }
-          throw err;
-        }
-      }
-
-      setBillId(candidate);
-
+      // Offline: no server to allocate a real sequential number from, so
+      // this is only ever a local, throwaway reference shown on the
+      // "OFFLINE — PENDING SYNC" receipt — the real "INV-dddd" invoice
+      // number is assigned once this sale actually syncs (see
+      // lib/offlineSync.js's allocateOrderId). Not shown to the cashier
+      // as "the" invoice number for that reason.
       if (offlineSyncEnabled && !isOnline) {
+        const localPlaceholder =
+          '#' +
+          Math.floor(Math.random() * 10000)
+            .toString()
+            .padStart(4, '0');
+
+        setBillId(localPlaceholder);
         setView('preview');
         return;
       }
 
+      // Online: the real, sequential invoice number — allocated once,
+      // atomically, server-side (lib/orderId.js). No more client-side
+      // guessing/retry loop.
+      const { invoiceId } = await api.nextInvoiceId();
+
+      setBillId(invoiceId);
+
       await saveDraftNow(
         undefined,
         undefined,
-        candidate
+        invoiceId
       );
 
       setView('preview');

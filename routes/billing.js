@@ -13,6 +13,7 @@ const { getLatestSellingPrice } = require('../lib/pricing');
 const { consumeFIFO, deriveCostSource, disableIfDepleted } = require('../lib/costing');
 const { logAudit } = require('../lib/auditLog');
 const { applyCustomerAccountDelta } = require('../lib/customerAccount');
+const { nextInvoiceId } = require('../lib/orderId');
 const { isValidProductId, isValidOrderId, isValidEmail, isValidPhone } = require('../lib/validators');
 const logger = require('../lib/logger');
 
@@ -482,6 +483,17 @@ verifiedProducts.push({
     order,
     customer,
   });
+}));
+
+// Allocates the next sequential invoice number ("INV-0001", "INV-0002",
+// ...) via the atomic Counter-backed generator (lib/orderId.js) and
+// hands it straight back — replaces the old client-side random-guess-
+// and-check loop that used to hit POST /billing/orderid in a retry
+// loop. Called once, from Billing.jsx's handlePreview, the moment a
+// cashier reaches Preview.
+router.post('/billing/nextInvoiceId', requireAuth, asyncHandler(async (req, res) => {
+  const invoiceId = await nextInvoiceId();
+  res.status(200).json({ success: true, invoiceId });
 }));
 
 // Read-only lookup, not a mutation — stays public like the other GET/list endpoints.

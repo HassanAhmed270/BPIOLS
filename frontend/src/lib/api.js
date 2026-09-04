@@ -105,6 +105,10 @@ export const api = {
 
   // Billing / orders
   getUniqueOrderId: (billId) => request('/billing/orderid', { method: 'POST', body: JSON.stringify({ billId }) }),
+  // Allocates the next sequential "INV-0001", "INV-0002", ... invoice
+  // number (server-side, atomic — see lib/orderId.js). Called once per
+  // bill, from handlePreview.
+  nextInvoiceId: () => request('/billing/nextInvoiceId', { method: 'POST' }),
   // NOTE: no payload — the server commits from the cashier's persisted
   // draft (POST /billing/draft), not from anything sent here. See
   // CLAUDE.md Stage 4.
