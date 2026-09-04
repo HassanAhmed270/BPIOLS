@@ -113,6 +113,15 @@ function buildEscPosReceipt(data) {
   line(padLine('Grand Total', data.totalLabel));
   line(padLine('Paid', data.paidLabel));
   line(padLine(data.settlementLabel, data.settlementAmountLabel));
+
+  if (data.showAccountBalance) {
+    line('-'.repeat(LINE_WIDTH));
+    line(padLine('Old Balance', data.oldBalanceLabel));
+    line(padLine('Total Balance', data.totalBalanceLabel));
+    line(padLine('Cash Received', data.cashReceivedLabel));
+    line(padLine('Net Balance', data.netBalanceLabel));
+  }
+
   line('-'.repeat(LINE_WIDTH));
   line(`Customer: ${data.customer}`);
   chunks.push(new Uint8Array([0x0a, 0x0a, 0x0a, 0x0a]));

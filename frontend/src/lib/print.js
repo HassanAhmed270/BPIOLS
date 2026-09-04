@@ -274,7 +274,12 @@ export function buildReceiptHtml({
   grandTotalLabel,
   paidLabel,
   settlementLabel,
-  settlementAmountLabel
+  settlementAmountLabel,
+  showAccountBalance,
+  oldBalanceLabel,
+  totalBalanceLabel,
+  cashReceivedLabel,
+  netBalanceLabel
 }) {
   const now = new Date();
 
@@ -365,6 +370,34 @@ export function buildReceiptHtml({
         <span>${settlementLabel}</span>
         <span>${formatReceiptMoney(settlementAmountLabel)}</span>
       </div>
+
+      ${
+        showAccountBalance
+          ? `
+        <hr class="sep" />
+
+        <div class="totals-row">
+          <span>Old Balance</span>
+          <span>${formatReceiptMoney(oldBalanceLabel)}</span>
+        </div>
+
+        <div class="totals-row">
+          <span>Total Balance</span>
+          <span>${formatReceiptMoney(totalBalanceLabel)}</span>
+        </div>
+
+        <div class="totals-row">
+          <span>Cash Received</span>
+          <span>${formatReceiptMoney(cashReceivedLabel)}</span>
+        </div>
+
+        <div class="totals-row grand">
+          <span>Net Balance</span>
+          <span>${formatReceiptMoney(netBalanceLabel)}</span>
+        </div>
+      `
+          : ''
+      }
 
       <hr class="sep-solid" />
 

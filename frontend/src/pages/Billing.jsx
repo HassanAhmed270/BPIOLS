@@ -689,7 +689,8 @@ export default function Billing() {
     savedOrder = null,
     receiptItems = null,
     receiptCustomer = null,
-    receiptBillId = null
+    receiptBillId = null,
+    receiptOldBalance = null
   ) => {
     const itemsSource = receiptItems || Object.values(billingItems);
     const customerName = receiptCustomer || customer;
@@ -707,6 +708,22 @@ export default function Billing() {
     const settlementAmount = formatMoney(
       Math.abs(paidNum - total)
     );
+
+    // Account balance block (Old/Total/Cash Received/Net Balance) only
+    // applies to a real, on-file customer — never Walk-in — and only
+    // when the caller actually resolved a pre-sale balance for them.
+    // receiptOldBalance is the customer's signed accountBalance as it
+    // stood *before* this sale (positive = owed, negative = credit).
+    const showAccountBalance =
+      customerName !== WALKIN_CUSTOMER &&
+      receiptOldBalance !== null &&
+      receiptOldBalance !== undefined;
+
+    const oldBalanceNum = showAccountBalance
+      ? roundMoney(receiptOldBalance)
+      : 0;
+    const totalBalanceNum = roundMoney(oldBalanceNum + total);
+    const netBalanceNum = roundMoney(totalBalanceNum - paidNum);
 
     const items = itemsSource.map((item) => {
       const subtotal = roundMoney(
@@ -753,6 +770,11 @@ export default function Billing() {
         settlementLabel,
         settlementAmountLabel: settlementAmount,
         customer: customerName,
+        showAccountBalance,
+        oldBalanceLabel: formatMoney(oldBalanceNum),
+        totalBalanceLabel: formatMoney(totalBalanceNum),
+        cashReceivedLabel: formatMoney(paidNum),
+        netBalanceLabel: formatMoney(netBalanceNum),
       });
 
       if (printed) {
@@ -780,6 +802,11 @@ export default function Billing() {
       paidLabel: formatMoney(paidNum),
       settlementLabel,
       settlementAmountLabel: settlementAmount,
+      showAccountBalance,
+      oldBalanceLabel: formatMoney(oldBalanceNum),
+      totalBalanceLabel: formatMoney(totalBalanceNum),
+      cashReceivedLabel: formatMoney(paidNum),
+      netBalanceLabel: formatMoney(netBalanceNum),
     });
 
     printReceipt(html);
@@ -882,6 +909,14 @@ export default function Billing() {
         return;
       }
 
+      // data.customer is the customer document as it stood *before*
+      // this order was applied (routes/billing.js reads it ahead of the
+      // transaction) — exactly the "old balance" the receipt needs.
+      // null for a Walk-in sale, which has no Customer document.
+      const oldBalance = data.customer
+        ? data.customer.accountBalance
+        : null;
+
       await printReceiptFor(
         total,
         paidNum,
@@ -890,7 +925,8 @@ export default function Billing() {
         data.order,
         receiptItems,
         receiptCustomer,
-        receiptBillId
+        receiptBillId,
+        oldBalance
       );
 
       toast.success(
@@ -924,6 +960,18 @@ export default function Billing() {
               new Date().toISOString(),
           });
 
+          // Offline: no server round-trip to get a fresh pre-sale
+          // balance, so fall back to the locally cached directory
+          // (last value synced from the server this session).
+          const cachedCustomer =
+            customerDirectory[receiptCustomer];
+          const offlineOldBalance = cachedCustomer
+            ? roundMoney(
+              (cachedCustomer.totalBalanceDue || 0) -
+              (cachedCustomer.creditBalance || 0)
+            )
+            : null;
+
           await printReceiptFor(
             total,
             paidNum,
@@ -932,7 +980,8 @@ export default function Billing() {
             null,
             receiptItems,
             receiptCustomer,
-            receiptBillId
+            receiptBillId,
+            offlineOldBalance
           );
 
           toast.success(
