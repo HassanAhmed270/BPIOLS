@@ -20,6 +20,10 @@ import { useConfirm } from '../components/ConfirmDialog';
 
 import { useSubmitGuard } from '../lib/useSubmitGuard';
 
+import { buildPaymentInvoiceHtml, printReceipt } from '../lib/print';
+
+import { SHOP_NAME, SHOP_ADDRESS, SHOP_PHONE } from '../lib/shopInfo';
+
 const emptyForm = {
   customerName: '',
   mobileNo: '',
@@ -60,6 +64,60 @@ export default function Customers() {
   // Prevent double-clicks from posting the same balance payment or
   // duplicate customer twice (see lib/useSubmitGuard.js).
   const { submitting: savingCustomer, guard: guardSaveCustomer } = useSubmitGuard();
+
+  // The PINV-#### receipt just created by a payment applied in this
+  // session's update — drives the "print it now?" popup. Cleared once
+  // dismissed or printed.
+  const [justPaidInvoice, setJustPaidInvoice] = useState(null);
+
+  // The always-available "Payment History" list — which customer it's
+  // open for, and their past PINV-#### receipts.
+  const [historyCustomer, setHistoryCustomer] = useState(null);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const printPaymentInvoice = (inv) => {
+    const html = buildPaymentInvoiceHtml({
+      shopName: SHOP_NAME,
+      shopAddress: SHOP_ADDRESS,
+      shopPhone: SHOP_PHONE,
+      invoiceNumber: inv.invoiceNumber,
+      customerName: inv.customerName,
+      oldBalanceLabel: formatMoney(inv.oldBalance),
+      paidLabel: formatMoney(inv.paidAmount),
+      newBalanceLabel: formatMoney(inv.newBalance),
+      date: inv.createdAt,
+    });
+
+    printReceipt(html);
+  };
+
+  const openPaymentHistory = async (customerName) => {
+    setHistoryCustomer(customerName);
+    setLoadingHistory(true);
+
+    try {
+      const data = await api.getPaymentInvoices(customerName);
+
+      if (!data.success) {
+        throw new Error(
+          data.message || 'Failed to load payment history'
+        );
+      }
+
+      setPaymentHistory(data.invoices || []);
+    } catch (err) {
+      toast.error(err.message);
+      setPaymentHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const closePaymentHistory = () => {
+    setHistoryCustomer(null);
+    setPaymentHistory([]);
+  };
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -235,6 +293,13 @@ export default function Customers() {
         }
 
         toast.success('Customer updated successfully!');
+
+        // A real payment was applied — offer to print the PINV-####
+        // receipt right away (also always reachable later via the
+        // Payment History button, per this feature's design).
+        if (data.paymentInvoice) {
+          setJustPaidInvoice(data.paymentInvoice);
+        }
       }
 
       await loadCustomers();
@@ -489,6 +554,16 @@ export default function Customers() {
 
                                 <button
                                   onClick={() =>
+                                    openPaymentHistory(c.customerName)
+                                  }
+                                  className="text-purple-600 hover:text-purple-800"
+                                  title="Payment History"
+                                >
+                                  🧾
+                                </button>
+
+                                <button
+                                  onClick={() =>
                                     handleDelete(c)
                                   }
                                   className="text-red-600 hover:text-red-800"
@@ -681,6 +756,117 @@ export default function Customers() {
             </div>
           </div>
         </div>
+
+        {justPaidInvoice && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
+              <h3 className="text-lg font-bold text-green-700 mb-1">
+                Payment Recorded
+              </h3>
+
+              <p className="text-sm text-gray-600 mb-3">
+                {justPaidInvoice.invoiceNumber} — {justPaidInvoice.customerName}
+              </p>
+
+              <div className="text-sm space-y-1 mb-4">
+                <div className="flex justify-between">
+                  <span>Old Balance</span>
+                  <span>{formatMoney(justPaidInvoice.oldBalance)}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span>Paid Amount</span>
+                  <span>{formatMoney(justPaidInvoice.paidAmount)}</span>
+                </div>
+
+                <div className="flex justify-between font-semibold">
+                  <span>Balance Left</span>
+                  <span>{formatMoney(justPaidInvoice.newBalance)}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    printPaymentInvoice(justPaidInvoice);
+                    setJustPaidInvoice(null);
+                  }}
+                  className="flex-1 px-4 py-1.5 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  Print Receipt
+                </button>
+
+                <button
+                  onClick={() => setJustPaidInvoice(null)}
+                  className="px-4 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {historyCustomer && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 max-h-[80vh] flex flex-col">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold">
+                  Payment History — {historyCustomer}
+                </h3>
+
+                <button
+                  onClick={closePaymentHistory}
+                  className="text-gray-500 hover:text-gray-700"
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 space-y-2">
+                {loadingHistory ? (
+                  <p className="text-center text-gray-400 py-6">
+                    Loading…
+                  </p>
+                ) : paymentHistory.length === 0 ? (
+                  <p className="text-center text-gray-400 py-6">
+                    No payments recorded for this customer yet.
+                  </p>
+                ) : (
+                  paymentHistory.map((inv) => (
+                    <div
+                      key={inv.invoiceNumber}
+                      className="border rounded-lg p-3 text-sm flex justify-between items-center gap-2"
+                    >
+                      <div>
+                        <div className="font-semibold">
+                          {inv.invoiceNumber}
+                        </div>
+
+                        <div className="text-gray-500">
+                          {new Date(inv.createdAt).toLocaleString()}
+                        </div>
+
+                        <div className="mt-1">
+                          Paid {formatMoney(inv.paidAmount)} · Balance
+                          left {formatMoney(inv.newBalance)}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => printPaymentInvoice(inv)}
+                        className="shrink-0 px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700"
+                      >
+                        Print
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
