@@ -357,25 +357,13 @@ export function buildReceiptHtml({
       <hr class="sep" />
 
       <div class="totals-row grand">
-        <span>Grand Total</span>
+        <span>${showAccountBalance ? 'Total' : 'Grand Total'}</span>
         <span>${formatReceiptMoney(grandTotalLabel)}</span>
-      </div>
-
-      <div class="totals-row">
-        <span>Paid</span>
-        <span>${formatReceiptMoney(paidLabel)}</span>
-      </div>
-
-      <div class="totals-row">
-        <span>${settlementLabel}</span>
-        <span>${formatReceiptMoney(settlementAmountLabel)}</span>
       </div>
 
       ${
         showAccountBalance
           ? `
-        <hr class="sep" />
-
         <div class="totals-row">
           <span>Old Balance</span>
           <span>${formatReceiptMoney(oldBalanceLabel)}</span>
@@ -396,7 +384,17 @@ export function buildReceiptHtml({
           <span>${formatReceiptMoney(netBalanceLabel)}</span>
         </div>
       `
-          : ''
+          : `
+        <div class="totals-row">
+          <span>Paid</span>
+          <span>${formatReceiptMoney(paidLabel)}</span>
+        </div>
+
+        <div class="totals-row">
+          <span>${settlementLabel}</span>
+          <span>${formatReceiptMoney(settlementAmountLabel)}</span>
+        </div>
+      `
       }
 
       <hr class="sep-solid" />
