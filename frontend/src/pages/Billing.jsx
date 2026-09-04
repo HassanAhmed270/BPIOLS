@@ -8,6 +8,8 @@ import { useAuth } from '../lib/AuthContext';
 
 import { useConfirm } from '../components/ConfirmDialog';
 
+import { useSubmitGuard } from '../lib/useSubmitGuard';
+
 import { api } from '../lib/api';
 
 import { roundMoney, formatMoney, formatMoneyShort } from '../lib/money';
@@ -92,6 +94,11 @@ export default function Billing() {
   }, [offlineSyncEnabled]);
 
   const [printerConnected, setPrinterConnected] = useState(false);
+
+  // Prevent double-clicks from reserving stock or generating the same
+  // bill twice (see lib/useSubmitGuard.js).
+  const { submitting: addingToBill, guard: guardAddToBill } = useSubmitGuard();
+  const { submitting: generatingBill, guard: guardGenerateBill } = useSubmitGuard();
   const webUSBSupported = isWebUSBSupported();
 
   useEffect(() => {
@@ -395,7 +402,7 @@ export default function Billing() {
     });
   };
 
-  const handleAddToBill = async () => {
+  const handleAddToBill = guardAddToBill(async () => {
     if (!selectedProductId) {
       toast.error('Please select a product from the table first!');
       return;
@@ -557,7 +564,7 @@ export default function Billing() {
     });
 
     setSelectedProductId(null);
-  };
+  });
 
   const handlePreview = async () => {
     if (billId) {
@@ -826,7 +833,7 @@ export default function Billing() {
     printReceipt(html);
   };
 
-  const handleGenerateBill = async () => {
+  const handleGenerateBill = guardGenerateBill(async () => {
     const total = grandTotal;
     const paidNum = parseFloat(paid) || 0;
     const receiptItems = Object.values(billingItems).map((item) => ({
@@ -1018,7 +1025,7 @@ export default function Billing() {
         'Error saving order: ' + err.message
       );
     }
-  };
+  });
 
   const handleCustomerSelect = (value) => {
     if (value === 'New Customer') {
@@ -1445,9 +1452,10 @@ export default function Billing() {
                       onClick={
                         handleAddToBill
                       }
-                      className="bg-brand-green text-white px-4 py-2 rounded-lg shadow hover:bg-green-700"
+                      disabled={addingToBill}
+                      className="bg-brand-green text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Add to Bill
+                      {addingToBill ? 'Adding…' : 'Add to Bill'}
                     </button>
 
                     <button
@@ -1700,9 +1708,10 @@ export default function Billing() {
                   onClick={
                     handleGenerateBill
                   }
-                  className="w-full py-2 bg-brand text-white rounded-lg shadow hover:bg-blue-700"
+                  disabled={generatingBill}
+                  className="w-full py-2 bg-brand text-white rounded-lg shadow hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Generate Bill
+                  {generatingBill ? 'Generating…' : 'Generate Bill'}
                 </button>
 
                 <div className="flex space-x-2">

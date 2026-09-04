@@ -18,6 +18,8 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 
 import { useConfirm } from '../components/ConfirmDialog';
 
+import { useSubmitGuard } from '../lib/useSubmitGuard';
+
 const emptyForm = {
   customerName: '',
   mobileNo: '',
@@ -54,6 +56,10 @@ export default function Customers() {
 
   const [undoStack, setUndoStack] = useState([]);
   const [showUndo, setShowUndo] = useState(false);
+
+  // Prevent double-clicks from posting the same balance payment or
+  // duplicate customer twice (see lib/useSubmitGuard.js).
+  const { submitting: savingCustomer, guard: guardSaveCustomer } = useSubmitGuard();
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -170,7 +176,7 @@ export default function Customers() {
     return true;
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = guardSaveCustomer(async (e) => {
     e.preventDefault();
 
     if (!validate()) return;
@@ -238,7 +244,7 @@ export default function Customers() {
       console.error('[CUSTOMER FRONTEND] Update failed:', err);
       toast.error(err.message);
     }
-  };
+  });
 
   const handleDelete = async (c) => {
     if (!(await confirm(`Delete customer ${c.customerName}?`))) {
@@ -645,15 +651,18 @@ export default function Customers() {
                     <div className="flex gap-2 pt-2">
                       <button
                         type="submit"
-                        className={`px-4 py-1.5 text-white rounded ${
+                        disabled={savingCustomer}
+                        className={`px-4 py-1.5 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed ${
                           mode === 'add'
                             ? 'bg-blue-600 hover:bg-blue-700'
                             : 'bg-yellow-600 hover:bg-yellow-700'
                         }`}
                       >
-                        {mode === 'add'
-                          ? 'Add Customer'
-                          : 'Update'}
+                        {savingCustomer
+                          ? 'Saving…'
+                          : mode === 'add'
+                            ? 'Add Customer'
+                            : 'Update'}
                       </button>
 
                       {mode === 'update' && (
